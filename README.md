@@ -16,6 +16,27 @@ A scheduled GitHub Actions workflow runs several workers side by side. Each one 
 The workflow authenticates with its short-lived GitHub OIDC identity; the repository stores no
 credentials.
 
+## Financial statements pipeline (schema version 2)
+
+Every income statement, balance sheet and cash flow item and ratio, per period (annual, half-year,
+nine months, quarter; consolidated and unconsolidated), each either read from the filing, calculated
+with its formula, or null. Staged so each step does only what it must, and writes what it did:
+
+| Stage | Code | What it does |
+|---|---|---|
+| 1 Analyse | `src/pipeline/analyse.ts` | Text layer and image coverage of every page (milliseconds). A page is **native** or **scanned**; scanned pages get only their title strip OCR'd. |
+| 2 Classify | `src/pipeline/classify.ts` | Keeps the statements and the notes the balance sheet cites; drops everything else, charts included. Every page records why. |
+| 3 Subset | `src/pipeline/subset.ts` | Cuts the kept pages out: native pages as a small PDF, scanned pages as 300 dpi images. |
+| 4 Tables | `python/docstage` | [Docling](https://github.com/docling-project/docling) (MIT) layout model and TableFormer recover each table's cell grid, from the text layer or by OCR. |
+| 5 Normalize | `src/pipeline/normalize.ts`, `labels.ts` | Dates every value column from its header; maps printed labels to items with ordered, explainable rules. |
+| 6 Validate | `src/pipeline/validate.ts`, `notes.ts` | Table arithmetic, accounting identities and cross-statement ties. Values that fail are dropped; OCR'd values must be confirmed. |
+| 7 Derive | `src/financials/derive.ts` | Everything calculable from what was read, each with its formula. |
+
+The rules are listed in [RULEBOOK.md](RULEBOOK.md), the output in [FINANCIALS.md](FINANCIALS.md).
+The manual **Evaluate** workflow runs the pipeline on sample filings as a dry run (no identity token,
+no API client) and scores it against hand-checked figures. The scheduled Extract workflow still
+submits schema version 1 until the ingest API accepts version 2.
+
 ## Document corpus
 
 Every filing's extracted page text is kept, so a document is downloaded and OCR'd once. When the

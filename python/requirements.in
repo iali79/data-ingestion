@@ -1,0 +1,8 @@
+# Docling (MIT) for layout, table structure and OCR orchestration. CPU-only torch keeps the install
+# small; the lock pins every package by hash. Refresh the lock after changing this file:
+#   uv pip compile python/requirements.in --generate-hashes --python-version 3.12 \
+#     --python-platform x86_64-manylinux_2_28 --torch-backend cpu --no-header -o python/requirements.lock
+# then update python/models.sha256 if the Docling models changed (see .github/actions/docling).
+docling==2.130.0
+torch
+torchvision

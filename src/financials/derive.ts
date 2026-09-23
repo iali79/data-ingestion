@@ -28,6 +28,8 @@ export interface Figure {
   text?: string;
   /** Derived: the formula, in terms of other item keys. */
   formula?: string;
+  /** Reported: the checks that confirmed the printed figure (table arithmetic, identities). */
+  checks?: string[];
 }
 
 export type Figures = Record<string, Figure | null>;
@@ -57,6 +59,8 @@ export interface ReportedValue {
   value: number;
   page: number | null;
   text: string;
+  /** The checks that confirmed it (e.g. "sum:p45.r21", "I1"); absent when none applied. */
+  checks?: string[];
 }
 
 export type PriceLookup = (date: string) => { close: number; date: string; source: string } | null;
@@ -404,7 +408,7 @@ function pick(values: ReportedValue[], statement: ReportedValue['statement'], pe
   const figures: Figures = {};
   for (const value of values) {
     if (value.statement !== statement || value.periodEnd !== periodEnd || value.months !== months) continue;
-    figures[value.key] = { value: value.value, source: 'reported', page: value.page, text: value.text };
+    figures[value.key] = { value: value.value, source: 'reported', page: value.page, text: value.text, ...(value.checks?.length ? { checks: value.checks } : {}) };
   }
   return figures;
 }

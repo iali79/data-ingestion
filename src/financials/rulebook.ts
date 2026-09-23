@@ -1,79 +1,79 @@
 /**
- * The rulebook: fixed rules for reading a filing. Every rule has an id, is given to the model
- * word for word (`modelRules`), and -- where marked `enforced` -- is also checked in code, so a
- * model answer that breaks it is rejected whatever the model says. RULEBOOK.md is generated from
- * this file (`npm run rulebook`), so the document and the running rules can never differ.
+ * The rulebook: the fixed rules every delivered figure obeys, each with an id, the pipeline stage
+ * that enforces it, and how. The rule ids appear in the output -- a reported figure lists the
+ * checks that confirmed it ("A1", "I2", "X2"), and every dropped value names the rule that
+ * dropped it -- so a figure can be traced to the rules it passed. RULEBOOK.md is generated from
+ * this file (`npm run docs`), so the document and the running rules cannot differ.
  */
 export interface Rule {
   id: string;
+  stage: 'classify' | 'tables' | 'normalize' | 'labels' | 'validate' | 'notes' | 'derive';
   text: string;
-  /** Where the code enforces it, or null for guidance the model follows and verification catches indirectly. */
-  enforced: string | null;
-  /** Applies to one statement only. */
-  statement?: 'income' | 'balance' | 'cash_flow';
+  /** Where and how the code enforces it. */
+  enforced: string;
 }
 
 export const RULES: Rule[] = [
-  // --- values -----------------------------------------------------------------------------
-  { id: 'V1', text: 'Never write, calculate, round or convert a number. Only point at printed rows; the figures are taken from the page by code.', enforced: 'The reply schema has no field for a number; every value is read from the row the model points at.' },
-  { id: 'V2', text: 'A "-" or "–" in a value column means nil (zero), not missing.', enforced: 'figureValue() maps a dash to 0.' },
-  { id: 'V3', text: 'Figures in brackets are negative: (1,234) is minus 1,234.', enforced: 'figureValue().' },
-  { id: 'V4', text: 'Leading small numbers such as 24, 3.1.4 or 10.1, 12.1 & 13.3 on a row are note references, not values.', enforced: 'Only the last N figures of a row are values, N = the number of value columns.' },
-  // --- columns and periods ---------------------------------------------------------------
-  { id: 'C1', text: 'Describe every value column left to right, skipping the Note column.', enforced: 'The number of columns and their years come from the printed heading row (e.g. "Note 2023 2022"), not from the model.' },
-  { id: 'C2', text: 'period_end is the date the column’s period ends, from the headings: "For the year ended December 31, 2023" with a column "2022" means 2022-12-31.', enforced: 'The year must be printed in the heading; the date must be within 18 months of the filing’s period.' },
-  { id: 'C3', text: 'months: 12 for a year, 9 for nine months, 6 for a half year, 3 for a quarter. Balance sheet columns are 0.', enforced: 'Balance sheet columns are forced to 0; other columns must be 3, 6, 9 or 12.' },
-  { id: 'C4', text: 'Quarterly and half-yearly statements often print year-to-date AND quarter columns (e.g. "Nine months ended" and "Quarter ended"): give each column its own length.', enforced: 'When the heading mentions no quarter, half year or nine months, every column takes the first column’s length.' },
-  { id: 'C5', text: 'In a quarterly or half-yearly balance sheet, the comparative column is usually the last year-end (e.g. "December 31, 2022 (Audited)"), not the same quarter a year earlier.', enforced: 'Column years come from the heading row; month-ends from the model.' },
-  { id: 'C6', text: 'Two value columns never describe the same period.', enforced: 'Columns are read from the printed headers by position (the nearest date and period phrase above each year); duplicate periods are dropped.' },
-  { id: 'C7', text: 'An interim statement that does not print its period length covers the months since the last financial year-end (e.g. year-end December, period ended September 30: nine months).', enforced: 'The year-end is read from the balance sheet\u2019s comparative column; the length is computed from it.' },
-  // --- choosing rows ----------------------------------------------------------------------
-  { id: 'R1', text: 'Most listed items are not printed on a given page. Leave them out. Never map an item to a row that is merely similar (reserves are not retained earnings; share capital is not preferred stock; intangible assets are not goodwill).', enforced: 'Each item has caption rules (definitions.ts CAPTIONS); a row whose caption does not fit is rejected.' },
-  { id: 'R2', text: 'A row can only be one item, except one "basic and diluted" EPS line, which is both.', enforced: 'A row used for two items (other than EPS) is rejected for both.' },
-  { id: 'R3', text: 'An uncaptioned row is a total of the rows above it. Only map it to a total item (e.g. total current assets under "CURRENT ASSETS", shareholders’ equity under "SHARE CAPITAL AND RESERVES", the total tax under split tax lines).', enforced: 'Uncaptioned rows are accepted only for items marked as totals.' },
-  { id: 'R3a', text: 'An uncaptioned total belongs to the heading it sits under: the total under "CURRENT ASSETS" is total current assets, under "NON-CURRENT ASSETS" total non-current assets, under "CURRENT LIABILITIES" total current liabilities, under "SHARE CAPITAL AND RESERVES" shareholders\u2019 equity.', enforced: 'An uncaptioned total is accepted only under its own heading.' },
-  { id: 'R4', text: 'A row whose caption is printed on the line above its figures is one row (the caption wraps).', enforced: 'rows.ts joins a caption-only line to the figures-only line under it.' },
-  { id: 'R5', text: 'If an item appears on two rows with different figures, it is ambiguous: leave it out.', enforced: 'An item mapped to two rows with different figures is dropped.' },
-  { id: 'R6', text: 'A page may show two statements side by side. Read only the requested one.', enforced: 'Side-by-side pages are cut at the second statement’s title before rows are built.' },
-  // --- units and signs --------------------------------------------------------------------
-  { id: 'U1', text: 'unit comes from the heading: "Rupees in thousand" or "Rupees in ’000" is thousands; "in million" is millions; otherwise rupees.', enforced: 'The unit stated on the page overrides the model’s.' },
-  { id: 'U2', text: 'Earnings per share is in rupees per share and is never scaled.', enforced: 'EPS is not multiplied by the unit.' },
-  { id: 'U3', text: 'Expenses on the income statement are delivered as positive amounts; a loss is negative.', enforced: 'read.ts EXPENSES.' },
-  { id: 'U4', text: 'Cash flow figures keep their printed sign: outflows such as capital expenditure or dividends paid are negative.', enforced: 'Cash flow values are not re-signed.' },
-  // --- statement-specific ---------------------------------------------------------------
-  { id: 'I1', statement: 'income', text: 'When levies (minimum / final tax) are shown before income tax, profit_before_tax is the profit AFTER levies and BEFORE income tax, and levies is the levies total.', enforced: 'profit_before_tax - taxation must equal profit_after_tax.' },
-  { id: 'I2', statement: 'income', text: 'taxation is the total income tax. When it is split into current / prior / deferred lines, use the uncaptioned total under them.', enforced: 'Same identity as I1.' },
-  { id: 'I3', statement: 'income', text: 'revenue is the net figure (after sales tax, discounts and commissions).', enforced: 'revenue - cost_of_sales must equal gross_profit.' },
-  { id: 'B1', statement: 'balance', text: 'shareholders_equity is the total of share capital and reserves (often an uncaptioned total). "TOTAL EQUITY AND LIABILITIES" is not equity and not liabilities.', enforced: 'Caption rules exclude "equity and liabilities" from equity and liability items.' },
-  { id: 'B2', statement: 'balance', text: 'Items above "EQUITY AND LIABILITIES" are assets; items below it are equity or liabilities. "Long-term loans" among assets is a loan given, not debt.', enforced: 'Rows are placed on the assets or claims side from the headings; an item on the wrong side is rejected.' },
-  { id: 'B3', statement: 'balance', text: 'Current maturity / current portion lines belong to the debt they are a portion of: long-term financing -> current_portion_long_term_debt; lease liabilities -> current_portion_lease_liabilities. A current portion of deferred liabilities is neither.', enforced: 'Caption rules.' },
-  { id: 'F1', statement: 'cash_flow', text: 'Working capital lines are listed under "(Increase) / decrease in current assets" and "Increase / (decrease) in current liabilities": the trade debts line is change_in_receivables, the stock-in-trade line change_in_inventory, the trade and other payables line change_in_payables.', enforced: 'Caption and section rules.' },
-  { id: 'F2', statement: 'cash_flow', text: 'Items belong to their section: operating, investing or financing activities. The section totals ("Net cash ... activities") are cash_from_operations, cash_from_investing and cash_from_financing.', enforced: 'Rows are placed in sections from the headings; an item in the wrong section is rejected.' },
-  { id: 'F3', statement: 'cash_flow', text: 'Repayment lines are debt_repaid (or lease_payments for leases); proceeds / loans obtained are debt_issued. Dividends paid is never a stock repurchase.', enforced: 'Caption rules.' },
-  // --- calculation (code only) ---------------------------------------------------------------
-  { id: 'D1', text: 'A figure that is not printed is calculated only when every input of its formula is available; the formula is delivered with it. Otherwise it is null.', enforced: 'derive.ts.' },
-  { id: 'D2', text: 'Average-based ratios need the balance sheet at the start of the period; sub-annual returns and turnovers are annualised (x 12 / months) and say so.', enforced: 'derive.ts.' },
-  { id: 'D3', text: 'Price multiples use the PSX closing price on or just before the period end, and earnings multiples only 12-month periods.', enforced: 'derive.ts.' },
+  // --- pages ------------------------------------------------------------------------------------
+  { id: 'P1', stage: 'classify', text: 'Only recognised pages are read: the income statement, balance sheet and cash flow per consolidation basis, and the notes the balance sheet cites. Everything else -- reviews, charts, "years at a glance", auditors’ reports -- is never extracted.', enforced: 'classify.ts selects pages positively; every page records why it was kept or dropped.' },
+  { id: 'P2', stage: 'classify', text: 'A statement title counts only as a heading: alone on its line or followed by its period ("as at ...", "for the year ended ..."). A title inside a sentence (an auditor’s report listing the statements) does not.', enforced: 'TITLE_TAIL in classify.ts.' },
+  { id: 'P3', stage: 'classify', text: 'A native statement page must print its own captions and figures; a scanned page’s title strip must show figures, a year header or a statement caption.', enforced: 'ANCHORS, figure-line count and YEAR_HEADER in classify.ts.' },
+  { id: 'P4', stage: 'classify', text: 'A note is the one the balance sheet cites by number ("Stock-in-trade 9" -> note 9); without a citation only a whole-numbered heading counts (2.3 is an accounting policy, not a note).', enforced: 'noteReferences and noteHeading in classify.ts.' },
+  // --- reading tables ---------------------------------------------------------------------------
+  { id: 'T1', stage: 'tables', text: 'A native page is read from its text layer; a scanned page is read from its image by OCR, never from a partial text overlay.', enforced: 'subset.ts renders scanned pages to 300 dpi images; docstage OCRs only those.' },
+  { id: 'V1', stage: 'normalize', text: 'A figure is taken only from a printed table cell. Nothing is typed, estimated or completed.', enforced: 'parseFigure: an unreadable cell is null, never repaired beyond trimming OCR residue.' },
+  { id: 'V2', stage: 'normalize', text: 'A dash in a value column means nil (zero).', enforced: 'parseFigure.' },
+  { id: 'V3', stage: 'normalize', text: 'Figures in brackets are negative.', enforced: 'parseFigure.' },
+  { id: 'V4', stage: 'normalize', text: 'The note column holds references, not values.', enforced: 'columnLayout sets the note column aside.' },
+  { id: 'R4', stage: 'normalize', text: 'One printed line split across two table rows (part of the label and part of the figures on each) is one row.', enforced: 'mergeSplitRows, only when the two rows’ figures do not overlap and together fill every column.' },
+  // --- columns and periods ------------------------------------------------------------------------
+  { id: 'C1', stage: 'normalize', text: 'Each value column is dated by its printed header; the year must be printed.', enforced: 'describeColumns.' },
+  { id: 'C2', stage: 'normalize', text: 'A column’s date must be within 18 months of the filing’s period.', enforced: 'columnProblem.' },
+  { id: 'C3', stage: 'normalize', text: 'Flow columns cover 3, 6, 9 or 12 months; balance-sheet columns are a date.', enforced: 'columnProblem.' },
+  { id: 'C4', stage: 'normalize', text: 'Year-to-date and quarter columns each take the length printed over them ("Nine months ended", "Quarter ended").', enforced: 'describeColumns reads each column’s own header.' },
+  { id: 'C5', stage: 'normalize', text: 'Where a header prints only the year, the date and length come from the statement title ("For the year ended December 31, 2023").', enforced: 'describeColumns.' },
+  { id: 'C6', stage: 'normalize', text: 'Two value columns never describe the same period; if they do, neither is used.', enforced: 'describeColumns.' },
+  { id: 'C7', stage: 'normalize', text: 'An interim column that does not print its length covers the months since the financial year-end, read from the balance sheet’s comparative column.', enforced: 'monthsSince in conventions.ts.' },
+  // --- labels -------------------------------------------------------------------------------------
+  { id: 'R1', stage: 'labels', text: 'A row is an item only when its printed label matches that item’s wording. Similar is not enough: reserves are not retained earnings, intangible assets are not goodwill. Unmatched rows are reported, not guessed.', enforced: 'LABEL_RULES in labels.ts, specific wording first.' },
+  { id: 'R2', stage: 'labels', text: 'A row is one item, except one "basic and diluted" EPS line, which is both.', enforced: 'matchRows.' },
+  { id: 'R3', stage: 'labels', text: 'An uncaptioned total belongs to the heading it closes (the last one under "CURRENT ASSETS" is total current assets), or on the income statement to the split tax lines directly above it.', enforced: 'uncaptionedTotal in labels.ts.' },
+  { id: 'R5', stage: 'validate', text: 'An item printed on two rows with different figures is ambiguous and not delivered.', enforced: 'valuesFromMatches.' },
+  { id: 'R6', stage: 'labels', text: 'Items must sit where they belong: assets above "EQUITY AND LIABILITIES", equity and liabilities below; cash flow items in their operating, investing or financing section.', enforced: 'placeRows and the side/section/under conditions of each label rule.' },
+  // --- units and signs ----------------------------------------------------------------------------
+  { id: 'U1', stage: 'normalize', text: 'Figures are scaled by the unit the page states ("Rupees in ’000" is x1,000).', enforced: 'unitFromText over the header, title and first rows.' },
+  { id: 'U2', stage: 'validate', text: 'Earnings per share is rupees per share and is never scaled.', enforced: 'PER_SHARE.' },
+  { id: 'U3', stage: 'validate', text: 'Income-statement expenses are delivered as positive amounts; cash flow figures keep their printed sign.', enforced: 'EXPENSES.' },
+  { id: 'U4', stage: 'validate', text: 'Items that cannot be negative (revenue, total assets, cash, ...) are dropped when read negative.', enforced: 'NON_NEGATIVE.' },
+  // --- checks -------------------------------------------------------------------------------------
+  { id: 'A1', stage: 'validate', text: 'Every printed total must equal the rows above it, column by column (to rounding). Rows in a sum that adds up are confirmed.', enforced: 'confirmTotals; the confirming total is listed in the figure’s checks.' },
+  { id: 'I1', stage: 'validate', text: 'Revenue - cost of sales = gross profit.', enforced: 'IDENTITIES; on failure all three are dropped.' },
+  { id: 'I2', stage: 'validate', text: 'Profit before tax - taxation = profit after tax.', enforced: 'IDENTITIES; on failure all three are dropped.' },
+  { id: 'B4', stage: 'validate', text: 'Current + non-current assets = total assets.', enforced: 'IDENTITIES.' },
+  { id: 'B5', stage: 'validate', text: 'Total assets = the printed total equity and liabilities.', enforced: 'applyChecks.' },
+  { id: 'F4', stage: 'validate', text: 'Operating + investing + financing cash flows = net change in cash.', enforced: 'IDENTITIES.' },
+  { id: 'F5', stage: 'validate', text: 'Opening cash + net change (+ exchange differences) = closing cash.', enforced: 'IDENTITIES.' },
+  { id: 'X1', stage: 'validate', text: 'The cash flow’s profit before tax equals the income statement’s for the same period (recorded as a confirmation; a difference is reported, since levies can sit between them).', enforced: 'applyChecks.' },
+  { id: 'V5', stage: 'validate', text: 'A figure read by OCR is delivered only when at least one check (A1, an identity, B5, X1) confirms it.', enforced: 'applyChecks.' },
+  // --- notes --------------------------------------------------------------------------------------
+  { id: 'X2', stage: 'notes', text: 'The inventory split (raw material, work-in-process, finished goods) is delivered only when the note’s lines add up to its total and that total equals the balance sheet’s stock-in-trade.', enforced: 'reconcile in notes.ts.' },
+  // --- calculation --------------------------------------------------------------------------------
+  { id: 'D1', stage: 'derive', text: 'A figure that is not printed is calculated only when every input of its formula is available; the formula is delivered with it. Otherwise it is null.', enforced: 'derive.ts.' },
+  { id: 'D2', stage: 'derive', text: 'Average-based ratios need the balance sheet at the start of the period; sub-annual returns and turnovers are annualised (x 12 / months) and say so.', enforced: 'derive.ts.' },
+  { id: 'D3', stage: 'derive', text: 'Price multiples use the PSX closing price on or just before the period end; earnings multiples only 12-month periods.', enforced: 'derive.ts, price.ts.' },
 ];
-
-/** The rules as given to the model for one statement. */
-export function modelRules(statement: 'income' | 'balance' | 'cash_flow'): string {
-  return RULES.filter((rule) => !rule.id.startsWith('D') && (!rule.statement || rule.statement === statement))
-    .map((rule) => `${rule.id}. ${rule.text}`)
-    .join('\n');
-}
 
 export function rulebookMarkdown(): string {
   const lines = [
     '# Rulebook',
     '',
-    'Fixed rules for reading a filing. Each is given to the model word for word, and most are also',
-    'enforced in code: a model answer that breaks an enforced rule is rejected, whatever the model says.',
-    'Generated from `src/financials/rulebook.ts` (`npm run rulebook`); edit that file, not this one.',
+    'Fixed rules every delivered figure obeys. Each is enforced in code at the stage named; a',
+    'reported figure lists the checks that confirmed it, and every dropped value names the rule that',
+    'dropped it. Generated from `src/financials/rulebook.ts` (`npm run docs`); edit that file, not this one.',
     '',
-    '| Id | Rule | Enforced in code |',
-    '|---|---|---|',
-    ...RULES.map((rule) => `| ${rule.id} | ${rule.statement ? `*(${rule.statement.replace('_', ' ')})* ` : ''}${rule.text.replace(/\|/gu, '\\|')} | ${rule.enforced ? rule.enforced.replace(/\|/gu, '\\|') : 'Guidance only'} |`),
+    '| Id | Stage | Rule | Enforced |',
+    '|---|---|---|---|',
+    ...RULES.map((rule) => `| ${rule.id} | ${rule.stage} | ${rule.text.replace(/\|/gu, '\\|')} | ${rule.enforced.replace(/\|/gu, '\\|')} |`),
     '',
   ];
   return lines.join('\n');

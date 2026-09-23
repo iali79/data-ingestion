@@ -1,0 +1,57 @@
+name: Docling table extraction
+description: >
+  Prepares the document stage on this runner: a Python environment installed from a hash-pinned
+  lock (Docling with CPU-only torch), and the Docling layout and TableFormer models, each file
+  checked against python/models.sha256. Everything runs locally and offline after this step.
+
+outputs:
+  python:
+    description: Python executable with docling installed
+    value: ${{ steps.paths.outputs.python }}
+  models:
+    description: Directory of verified Docling models
+    value: ${{ steps.paths.outputs.models }}
+
+runs:
+  using: composite
+  steps:
+    - id: paths
+      shell: bash
+      run: |
+        echo "python=$HOME/docstage/venv/bin/python" >> "$GITHUB_OUTPUT"
+        echo "models=$HOME/docstage/models" >> "$GITHUB_OUTPUT"
+
+    - name: Environment and model cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/docstage/venv
+          ~/docstage/models
+        # A cached venv or model is still re-checked below, so a stale or tampered entry fails.
+        key: docstage-${{ runner.os }}-py312-${{ hashFiles('python/requirements.lock', 'python/models.sha256') }}
+
+    - name: Install Docling (hash-pinned)
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ ! -x ~/docstage/venv/bin/python ]; then
+          python3 -m venv ~/docstage/venv || {
+            sudo apt-get install -y -qq --no-install-recommends python3-venv >/dev/null
+            python3 -m venv ~/docstage/venv
+          }
+          ~/docstage/venv/bin/pip install --quiet --no-cache-dir --require-hashes --no-deps \
+            --extra-index-url https://download.pytorch.org/whl/cpu -r python/requirements.lock
+        fi
+        ~/docstage/venv/bin/pip check >/dev/null
+        ~/docstage/venv/bin/python -c "import docling, importlib.metadata as m; print('docling', m.version('docling'))"
+
+    - name: Download and verify models
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p ~/docstage/models
+        if ! (cd ~/docstage/models && sha256sum -c --quiet "$GITHUB_WORKSPACE/python/models.sha256" 2>/dev/null); then
+          ~/docstage/venv/bin/docling-tools models download -o ~/docstage/models layout tableformer >/dev/null
+        fi
+        cd ~/docstage/models && sha256sum -c --quiet "$GITHUB_WORKSPACE/python/models.sha256"
+        echo "models verified"

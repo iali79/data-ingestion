@@ -1,9 +1,11 @@
 name: Evaluate
 
-# Manual only. Runs the financials pipeline (locate statements -> local model labels rows ->
-# rulebook checks -> derivations) over a fixed sample of filings, in parallel jobs, and publishes
-# per filing the exact JSON the ingest webhook would receive, plus a report scored against a
-# hand-typed answer key.
+# Manual only. Runs the financials pipeline over a fixed sample of filings, in parallel jobs:
+#   analyse pages -> classify (keep statements and cited notes) -> cut those pages out ->
+#   Docling tables (text layer, or OCR for scanned pages) -> labels and columns -> arithmetic and
+#   accounting checks -> derivations
+# and publishes per filing the exact JSON the ingest webhook would receive, every stage's output,
+# and a report scored against a hand-typed answer key.
 #
 # DRY RUN: no job here has id-token permission, so none can obtain an identity the ingest API
 # accepts, and the evaluation code does not import the API client. Nothing reaches the database.
@@ -13,7 +15,7 @@ on:
       samples:
         description: Sample list
         type: choice
-        options: ['samples/hpl.json']
+        options: ['samples/hpl.json', 'samples/scanned.json']
         default: 'samples/hpl.json'
       jobs:
         description: Parallel jobs
@@ -42,7 +44,7 @@ jobs:
   evaluate:
     needs: plan
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 90
     permissions:
       contents: read
     strategy:
@@ -57,18 +59,19 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - name: Install OCR tools
+      - name: Install PDF and OCR tools
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-eng >/dev/null
       - run: npm ci --no-audit --no-fund
       - run: npm run build
-      - id: llm
-        uses: ./.github/actions/llm
+      - id: docling
+        uses: ./.github/actions/docling
       - name: Evaluate
         env:
-          LLM_URL: ${{ steps.llm.outputs.url }}
-          CORPUS_TOKEN: ${{ github.token }}
+          DOCSTAGE_PYTHON: ${{ steps.docling.outputs.python }}
+          DOCLING_MODELS: ${{ steps.docling.outputs.models }}
+          DOCSTAGE_PATH: ${{ github.workspace }}/python
           SAMPLES: ${{ inputs.samples }}
           EVAL_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
         run: node dist/evaluate.js "$SAMPLES" samples/hpl-answers.json out

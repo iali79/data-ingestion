@@ -7,7 +7,7 @@ What the ingest webhook receives for each filing. Generated from `src/financials
   "schemaVersion": 2,
   "extractorVersion": 3,
   "filing": { "symbol": "HPL", "reportType": "annual", "periodEnded": "2023", "sourceUrl": "https://financials.psx.com.pk/..." },
-  "document": { "kind": "pdf", "contentType": "application/pdf", "method": "pdftotext", "pageCount": 114, "confidence": 0.84 },
+  "document": { "kind": "pdf", "pageCount": 114, "pagesRead": 7, "nativePages": 7, "scannedPages": 0 },
   "periods": [
     {
       "periodEnd": "2023-12-31",
@@ -15,18 +15,21 @@ What the ingest webhook receives for each filing. Generated from `src/financials
       "periodType": "annual",
       "basis": "unconsolidated",
       "price": { "close": 1200, "date": "2023-12-29", "source": "PSX end-of-day close" },
-      "income":   { "revenue": { "value": 21368949000, "source": "reported", "page": 46, "text": "REVENUE - NET 24 21,368,949 18,559,884" }, "gross_profit": { "value": 5526443000, "source": "derived", "formula": "revenue - cost_of_sales" }, "goodwill": null },
+      "income":   { "revenue": { "value": 21368949000, "source": "reported", "page": 46, "text": "REVENUE - NET | 24 | 21,368,949 | 18,559,884", "checks": ["A1 sum to p46.r2", "I1"] }, "gross_profit": { "value": 5526443000, "source": "derived", "formula": "revenue - cost_of_sales" }, "goodwill": null },
       "balance":  { "...": "every balance sheet key" },
       "cashFlow": { "...": "every cash flow key" },
       "ratios":   { "...": "every ratio key" }
     }
   ],
-  "pages": [ { "pageNumber": 46, "method": "pdftotext", "confidence": 0.85, "text": "..." } ]
+  "pages": [ { "pageNumber": 46, "method": "pdftotext", "text": "..." } ]
 }
 ```
 
-- **Every key below is present in every period**, as `{ value, source: "reported", page, text }`,
+- **Every key below is present in every period**, as `{ value, source: "reported", page, text, checks }`,
   `{ value, source: "derived", formula }`, or `null` (not printed and not derivable).
+- `checks` lists the rules that confirmed a printed figure (RULEBOOK.md): `A1` its table adds up,
+  `I1`/`I2`/`B4`/`B5`/`F4`/`F5` an accounting identity holds, `X1`/`X2` it agrees with another
+  statement. A figure read by OCR is only ever delivered with at least one check.
 - `periodType`: `annual` (12 months), `nine_months`, `half_year`, `quarter` (3 months), or
   `balance_sheet_date` for a balance-sheet column with no flows of its own. A filing's comparative
   columns are separate periods.

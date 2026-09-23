@@ -33,9 +33,9 @@ export function cropped(statement: StatementPage): Array<{ pageNumber: number; t
   }));
 }
 
-const HEADING_LINES = 14;
+export const HEADING_LINES = 14;
 
-const TITLES: Array<[StatementType, RegExp]> = [
+export const TITLES: Array<[StatementType, RegExp]> = [
   [
     'income_statement',
     /^(statement\s+of\s+profit\s+(?:or|and)\s+loss|profit\s+and\s+loss\s+account|income\s+statement|statement\s+of\s+income)\b/iu,
@@ -45,25 +45,25 @@ const TITLES: Array<[StatementType, RegExp]> = [
 ];
 
 /** Words that may precede a title: "Unconsolidated Condensed Interim Statement of ...". */
-const TITLE_PREFIX = /^(?:(?:un-?consolidated|consolidated|separate|standalone|condensed|interim)\s+)*/iu;
+export const TITLE_PREFIX = /^(?:(?:un-?consolidated|consolidated|separate|standalone|condensed|interim)\s+)*/iu;
 
 /**
  * Pages that reuse statement wording against a different table: multi-year summaries and
  * analyses. Checked across the whole heading block -- such a page may carry a statement title as
  * a sub-heading ("Horizontal Analysis / Statement of Financial Position").
  */
-const SUMMARY_PAGE =
+export const SUMMARY_PAGE =
   /\bfinancial\s+highlights\b|\byears?\s+at\s+a\s+glance\b|\b(?:six|6|ten|10)[\s-]years?'?\b|\bhorizontal\s+analysis\b|\bvertical\s+analysis\b|\bkey\s+(?:financial\s+)?(?:data|indicators)\b|\bdupont\b|\bvalue\s+added\b/iu;
 
 /** Titles that are not read but still mark a column edge when printed beside one that is. */
-const OTHER_TITLE = /^(statement\s+of\s+(?:other\s+)?comprehensive\s+income|statement\s+of\s+changes\s+in\s+equity|notes\s+to\s+the)\b/iu;
+export const OTHER_TITLE = /^(statement\s+of\s+(?:other\s+)?comprehensive\s+income|statement\s+of\s+changes\s+in\s+equity|notes\s+to\s+the)\b/iu;
 
 /** Annual reports print two statements side by side; their headings share a line, split by a wide gap. */
 const COLUMN_GAP = /\s{3,}/u;
 
 /** A statement page is a table: many lines ending in figures. */
 const FIGURE_LINE = /(?:\(?\d{1,3}(?:,\d{3})+\)?|\(?\d+\.\d+\)?|\s-\s*$)\s*$/u;
-const MIN_FIGURE_LINES = 6;
+export const MIN_FIGURE_LINES = 6;
 
 export function findStatementPages(document: ExtractedDocument): StatementPage[] {
   const found: StatementPage[] = [];
@@ -122,7 +122,7 @@ function titlesOn(segments: string[]): Array<{ type: StatementType; basis: Conso
 }
 
 /** Where each statement title starts on the heading lines that carry two titles side by side. */
-function titleOffsets(text: string): Array<{ type: StatementType; start: number; lineTitles: number }> {
+export function titleOffsets(text: string): Array<{ type: StatementType; start: number; lineTitles: number }> {
   const offsets: Array<{ type: StatementType; start: number; lineTitles: number }> = [];
   const lines = text.split('\n').filter((line) => line.trim().length > 0).slice(0, HEADING_LINES);
   for (const line of lines) {
@@ -144,7 +144,7 @@ function titleOffsets(text: string): Array<{ type: StatementType; start: number;
 }
 
 /** For a statement printed beside another: [its title's start (or 0), the next title's start (or end)). */
-function sideBySideColumns(offsets: Array<{ type: StatementType; start: number }>, type: StatementType): [number, number] | undefined {
+export function sideBySideColumns(offsets: Array<{ type: StatementType; start: number }>, type: StatementType): [number, number] | undefined {
   const mine = offsets.find((item) => item.type === type);
   if (!mine) return undefined;
   const starts = [...new Set(offsets.map((item) => item.start))].sort((a, b) => a - b);
@@ -155,7 +155,7 @@ function sideBySideColumns(offsets: Array<{ type: StatementType; start: number }
 }
 
 /** The heading block's lines, each split into side-by-side column headings. */
-function headingSegments(text: string): string[] {
+export function headingSegments(text: string): string[] {
   return text
     .split('\n')
     .filter((line) => line.trim().length > 0)
@@ -183,11 +183,11 @@ export function compactPageText(text: string): string {
     .join('\n');
 }
 
-function figureLines(text: string): number {
+export function figureLines(text: string): number {
   return text.split('\n').filter((line) => FIGURE_LINE.test(line.trimEnd())).length;
 }
 
-function basisFrom(word: string | undefined): ConsolidationBasis {
+export function basisFrom(word: string | undefined): ConsolidationBasis {
   if (!word) return 'unknown';
   return /^(un-?consolidated|separate|standalone)$/iu.test(word) ? 'unconsolidated' : 'consolidated';
 }

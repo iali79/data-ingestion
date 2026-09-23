@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildPeriods, shiftMonths, type ReportedValue } from '../src/financials/derive.js';
 import { BALANCE, CASH_FLOW, CAPTIONS, INCOME, RATIOS } from '../src/financials/definitions.js';
-import { RULES, modelRules } from '../src/financials/rulebook.js';
+import { RULES } from '../src/financials/rulebook.js';
 import { buildRows, figureValue } from '../src/statements/rows.js';
 
 const page = (text: string) => [{ pageNumber: 45, text }];
@@ -105,10 +105,9 @@ describe('derivations', () => {
 });
 
 describe('rulebook', () => {
-  it('has unique ids and gives the model the rules for its statement only', () => {
+  it('has unique ids, each tied to the stage that enforces it', () => {
     expect(new Set(RULES.map((rule) => rule.id)).size).toBe(RULES.length);
-    expect(modelRules('balance')).toContain('B1.');
-    expect(modelRules('balance')).not.toContain('F1.');
+    expect(RULES.every((rule) => rule.stage.length > 0 && rule.enforced.length > 0)).toBe(true);
   });
 
   it('has a caption rule for every item the model can read', () => {
@@ -117,36 +116,9 @@ describe('rulebook', () => {
   });
 });
 
-describe('column headers', () => {
-  it('reads year-to-date and quarter columns by position', async () => {
-    const { inferColumns } = await import('../src/financials/read.js');
-    const text = [
-      'Condensed Interim Statement of Profit or Loss',
-      'For the nine-months period and quarter ended September 30, 2023 (Un-audited)',
-      '                                  Nine Months Ended                           Quarter Ended',
-      '                           September 30,   September 30,             September 30,    September 30,',
-      '                               2023            2022                      2023             2022',
-      'NET SALES                  12   15,879,229      14,045,248                5,831,380        4,521,404',
-    ].join('\n');
-    const pages = [{ pageNumber: 9, text }];
-    const columns = inferColumns(pages, buildRows(pages).rows, 'income');
-    expect(columns?.map((column) => `${column.year}${column.monthDay}/${column.months}`)).toEqual([
-      '2023-09-30/9',
-      '2022-09-30/9',
-      '2023-09-30/3',
-      '2022-09-30/3',
-    ]);
-  });
-
-  it('takes an annual date and length from the title', async () => {
-    const { inferColumns } = await import('../src/financials/read.js');
-    const text = ['Statement of Profit or Loss', 'For the Year Ended December 31, 2023', '                     Note        2023          2022', 'REVENUE - NET   24   21,368,949   18,559,884'].join('\n');
-    const pages = [{ pageNumber: 46, text }];
-    expect(inferColumns(pages, buildRows(pages).rows, 'income')?.map((column) => `${column.year}${column.monthDay}/${column.months}`)).toEqual(['2023-12-31/12', '2022-12-31/12']);
-  });
-
+describe('conventions', () => {
   it('computes an unprinted interim length from the year-end (rule C7)', async () => {
-    const { monthsSince } = await import('../src/financials/read.js');
+    const { monthsSince } = await import('../src/financials/conventions.js');
     expect(monthsSince('-12-31', '-09-30')).toBe(9);
     expect(monthsSince('-06-30', '-12-31')).toBe(6);
     expect(monthsSince('-12-31', '-12-31')).toBe(12);

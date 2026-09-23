@@ -51,6 +51,17 @@ const COMMAND_TIMEOUT_MS = 120_000;
 /** A page with less native text than this is treated as a scan and sent to OCR. */
 const SPARSE_PAGE_CHARS = 80;
 
+/** Downloads a document from an allowlisted host, within the size limit. */
+export async function downloadDocument(url: string): Promise<{ buffer: Buffer; contentType: string | null }> {
+  const response = await fetchDocument(url);
+  const declaredLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_DOCUMENT_BYTES) {
+    await response.body?.cancel();
+    throw new DocumentExtractionError('document_too_large', `document exceeds ${MAX_DOCUMENT_BYTES} bytes`);
+  }
+  return { buffer: await readResponseWithLimit(response, MAX_DOCUMENT_BYTES), contentType: response.headers.get('content-type') };
+}
+
 export async function downloadAndExtractDocument(url: string, ocr: OcrPolicy = { mode: 'always' }): Promise<ExtractedDocument> {
   const response = await fetchDocument(url);
   const contentType = response.headers.get('content-type');
@@ -294,7 +305,7 @@ async function readResponseWithLimit(response: Response, maxBytes: number): Prom
   return Buffer.concat(chunks, size);
 }
 
-async function runTesseract(file: string): Promise<{ text: string; confidence: number }> {
+export async function runTesseract(file: string): Promise<{ text: string; confidence: number }> {
   const result = await runCommand('tesseract', [file, 'stdout', '-l', 'eng', '--psm', '6', 'tsv']);
   return parseTesseractTsv(result.stdout);
 }
@@ -313,7 +324,7 @@ export async function assertToolchain(): Promise<void> {
   if (missing.length > 0) throw new Error(`extraction toolchain incomplete: ${missing.join(', ')} not available`);
 }
 
-async function commandAvailable(command: string, versionFlag = '--version'): Promise<boolean> {
+export async function commandAvailable(command: string, versionFlag = '--version'): Promise<boolean> {
   return runCommand(command, [versionFlag]).then(
     () => true,
     () => false,
@@ -354,9 +365,9 @@ export function parseTesseractTsv(tsv: string): { text: string; confidence: numb
   return { text, confidence };
 }
 
-function runCommand(command: string, args: string[]): Promise<{ stdout: string }> {
+export function runCommand(command: string, args: string[], timeoutMs = COMMAND_TIMEOUT_MS, env?: Record<string, string>): Promise<{ stdout: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'], ...(env ? { env: { ...process.env, ...env } } : {}) });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let settled = false;
@@ -369,7 +380,7 @@ function runCommand(command: string, args: string[]): Promise<{ stdout: string }
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
       finish(() => reject(new DocumentExtractionError('extract_failed', `${command} timed out`)));
-    }, COMMAND_TIMEOUT_MS);
+    }, timeoutMs);
     child.stdout.on('data', (chunk) => stdout.push(Buffer.from(chunk)));
     child.stderr.on('data', (chunk) => stderr.push(Buffer.from(chunk)));
     child.on('error', (error: NodeJS.ErrnoException) =>
