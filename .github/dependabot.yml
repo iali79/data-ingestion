@@ -9,3 +9,8 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # Types must match the Node the workflows run (24); newer majors describe APIs the runners
+      # don't have. Raise this together with `node-version` in the workflows.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
