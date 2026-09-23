@@ -261,6 +261,19 @@ async function runTesseract(file: string): Promise<{ text: string; confidence: n
   return parseTesseractTsv(result.stdout);
 }
 
+/**
+ * Fails fast if any extraction tool is missing. Without tesseract, scanned pages would silently
+ * yield no text -- a degraded result that still looks like a success -- so a runner that can't
+ * OCR must not take work at all.
+ */
+export async function assertToolchain(): Promise<void> {
+  const missing: string[] = [];
+  for (const tool of ['pdftotext', 'pdftoppm', 'tesseract']) {
+    if (!(await commandAvailable(tool))) missing.push(tool);
+  }
+  if (missing.length > 0) throw new Error(`extraction toolchain incomplete: ${missing.join(', ')} not available`);
+}
+
 async function commandAvailable(command: string): Promise<boolean> {
   return runCommand(command, ['--version']).then(
     () => true,
