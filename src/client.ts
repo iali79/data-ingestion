@@ -31,9 +31,13 @@ export class IngestClient {
       await response.body?.cancel();
       throw new Error(`claim failed with HTTP ${response.status}`);
     }
-    const body = (await response.json()) as { task: ClaimedTask | null };
-    if (body.task) mask(body.task.leaseToken);
-    return body.task;
+    // The API wraps every response as `{ data: ... }`. Anything else is treated as an error, not
+    // as an empty queue -- a silently misread response would leave the task leased and idle.
+    const body = (await response.json()) as { data?: { task?: ClaimedTask | null } };
+    const task = body.data?.task;
+    if (task === undefined) throw new Error('claim response had an unexpected shape');
+    if (task) mask(task.leaseToken);
+    return task;
   }
 
   async submit(payload: ResultPayload): Promise<SubmitOutcome> {
@@ -41,7 +45,7 @@ export class IngestClient {
     await response.body?.cancel();
     if (response.status === 202) return 'accepted';
     if (response.status === 409) return 'lease_lost';
-    if (response.status === 422) return 'rejected';
+    if (response.status === 400 || response.status === 422) return 'rejected';
     throw new Error(`submit failed with HTTP ${response.status}`);
   }
 

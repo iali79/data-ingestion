@@ -18,17 +18,20 @@ stored credentials. Any authentication failure is a bare `401`/`403`.
 { "kinds": ["financial_statement", "corporate_action_notice"], "extractorVersion": 2 }
 ```
 
-`200` with one task, or `{ "task": null }` when there is nothing to do:
+`200` with one task, or `{ "data": { "task": null } }` when there is nothing to do. Every
+response body is wrapped in `data`:
 
 ```json
 {
-  "task": {
-    "id": "48213",
-    "kind": "financial_statement",
-    "sourceUrl": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=272758",
-    "context": { "symbol": "HPL", "reportType": "annual", "periodEnded": "2025" },
-    "leaseToken": "<64 hex characters>",
-    "leaseExpiresAt": "2026-09-23T10:30:00.000Z"
+  "data": {
+    "task": {
+      "id": "48213",
+      "kind": "financial_statement",
+      "sourceUrl": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=272758",
+      "context": { "symbol": "HPL", "reportType": "annual", "periodEnded": "2025" },
+      "leaseToken": "<64 hex characters>",
+      "leaseExpiresAt": "2026-09-23T10:30:00.000Z"
+    }
   }
 }
 ```
@@ -150,10 +153,10 @@ host_not_allowed`.
 
 | Status | Meaning |
 |---|---|
-| `202` | accepted (resubmitting the same result is also `202`) |
+| `202` | `{ "data": { "accepted": true } }` — resubmitting the same result is also `202` |
 | `401` / `403` | identity not accepted — the run stops |
-| `409` | lease expired or already superseded — the task is skipped |
-| `422` | payload failed validation — nothing was stored |
+| `409` | lease not held (expired, superseded or unknown) — the task is skipped |
+| `400` | payload failed validation — nothing was stored |
 
 ## Limits
 
