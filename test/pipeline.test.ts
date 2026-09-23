@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DocumentAnalysis, PageAnalysis } from '../src/pipeline/analyse.js';
+import { compare } from '../src/crosscheck.js';
 import { classifyPages } from '../src/pipeline/classify.js';
 import { matchRows, normalizeLabel } from '../src/pipeline/labels.js';
 import { buildStatementTable, describeColumns, parseFigure, type StatementRow, type StatementTable } from '../src/pipeline/normalize.js';
@@ -100,6 +101,34 @@ describe('labels', () => {
     expect(unmatched.map((item) => item.label)).toEqual(['Long-term deposits']);
   });
 
+  it('gives a heading only the uncaptioned total its rows add up to (R3)', () => {
+    const rows = [
+      row('a1', 'Property, plant and equipment', ['1,768,485'], ['ASSETS', 'NON-CURRENT ASSETS']),
+      row('a2', 'Intangible assets', ['14,012']),
+      row('a3', '', ['1,782,497']),
+      row('a4', 'Long-term deposits', ['15,983']),
+      row('a5', '', ['1,798,480']),
+      row('e1', '25,000,000 ordinary shares of Rs 10/= each', ['250,000,000'], ['EQUITY AND LIABILITIES', 'Share capital and reserves', 'Authorized Capital']),
+      row('e2', 'Issued, subscribed and paid up capital', ['172,909,620']),
+      row('e3', 'Accumulated profit', ['185,203,797']),
+      row('e4', '', ['358,113,417']),
+      row('c1', 'Short term borrowings', ['1,233,855,153'], ['CURRENT LIABILITIES']),
+      row('c2', 'Accrued markup', ['26,176,195']),
+      row('c3', '', ['1,260,031,348']),
+      row('c4', 'Contingencies and commitments', ['-']),
+      row('c5', '', ['3,700,987,123']),
+    ];
+    const items = Object.fromEntries(matchRows('balance', rows).matches.map((match) => [match.row.id, match.items.join()]));
+    // The fixed-assets subtotal (a3) adds up too, but the last row that adds up closes the heading.
+    expect(items.a3).toBeUndefined();
+    expect(items.a5).toBe('total_non_current_assets');
+    // Authorised capital is printed under equity but is not part of it.
+    expect(items.e4).toBe('shareholders_equity');
+    // The grand total below "Contingencies" is not the current liabilities.
+    expect(items.c3).toBe('total_current_liabilities');
+    expect(items.c5).toBeUndefined();
+  });
+
   it('takes the uncaptioned total under split tax lines as taxation', () => {
     const rows = [
       row('a', 'PROFIT BEFORE TAXATION', ['276,363']),
@@ -185,6 +214,48 @@ describe('statement table from a cell grid', () => {
   });
 });
 
+describe('an OCR table whose first rows mix headings and column headers', () => {
+  const cell = (row: number, col: number, text: string, extra: Partial<TableCell> = {}): TableCell => ({ row, col, rowSpan: 1, colSpan: 1, text, columnHeader: false, rowHeader: false, rowSection: false, ...extra });
+  const page: PageTables = {
+    pageNumber: 25,
+    method: 'docling-ocr',
+    width: 648,
+    height: 828,
+    texts: [{ label: 'section_header', text: 'ADAM SUGAR MILLS LIMITED STATEMENT OF FINANCIAL POSITION AS AT SEPTEMBER 30, 2018', bbox: [77, 98, 224, 126] }],
+    tables: [
+      {
+        bbox: [75, 127, 579, 643],
+        rows: 5,
+        cols: 4,
+        cells: [
+          cell(0, 0, 'ASSETS'),
+          cell(0, 1, 'Note', { columnHeader: true }),
+          cell(0, 2, '2018 =£————————__', { columnHeader: true }),
+          cell(0, 3, '2017 Rupees', { columnHeader: true }),
+          cell(1, 0, 'Non-current assets'),
+          cell(1, 3, '(Restated)'),
+          cell(2, 0, 'Property, plant and equipment'),
+          cell(2, 1, '6'),
+          cell(2, 2, '1,814,627,166'),
+          cell(2, 3, '= 1,580,825,659'),
+          cell(3, 0, 'Long term deposits'),
+          cell(3, 2, '32,400'),
+          cell(3, 3, '32,400.'),
+          cell(4, 2, '1,814,659,566'),
+          cell(4, 3, '1,580,858,059'),
+        ],
+      },
+    ],
+  };
+  const table = buildStatementTable({ statementType: 'balance_sheet', basis: 'unknown', pages: [25] }, [page], { periodEnded: '2018-09-30', yearEndMonthDay: null });
+
+  it('reads the column headers beside the heading and keeps the headings', () => {
+    expect(table.columns.map((column) => column.periodEnd)).toEqual(['2018-09-30', '2017-09-30']);
+    expect(table.rows[0]!.label).toBe('Property, plant and equipment');
+    expect(table.rows[0]!.headings).toEqual(['ASSETS', 'Non-current assets']);
+  });
+});
+
 describe('columns and figures', () => {
   it('dates year-to-date and quarter columns from their headers (C1-C4)', () => {
     const columns = describeColumns(
@@ -261,6 +332,34 @@ describe('validation', () => {
     const kept = applyChecks(values, [t], drops);
     expect(kept).toEqual([]);
     expect(drops.every((drop) => drop.reason.startsWith('V5'))).toBe(true);
+  });
+
+  it('drops negative sale proceeds, a misprint or a shifted row (U4)', () => {
+    const rows = [
+      row('p', 'Sale proceeds from disposal of operating fixed assets', ['(136,311)'], ['CASH FLOWS FROM INVESTING ACTIVITIES']),
+      row('i', 'Short-term investments made', ['59,157']),
+    ];
+    const t = table(rows, 'cash_flow');
+    const drops: Drop[] = [];
+    const values = valuesFromMatches('cash_flow', t, matchRows('cash_flow', rows).matches, confirmTotals(t), drops);
+    expect(values.map((value) => value.key)).not.toContain('sale_of_assets');
+    expect(drops).toEqual([{ item: 'sale_of_assets', reason: 'negative for 2023-12-31' }]);
+  });
+});
+
+describe('cross-filing comparison', () => {
+  const filing = (id: string, value: number, periodEnd = '2024-12-31') => ({
+    schemaVersion: 2,
+    filing: { symbol: 'HPL', url: `https://financials.psx.com.pk/lib/DownloadPDF.php?id=${id}`, periodEnded: periodEnd },
+    periods: [{ periodEnd, months: 0, basis: 'consolidated', balance: { total_current_liabilities: { value, source: 'reported', page: 26, text: '(total) | 6,532,317' } } }],
+  });
+
+  it('reports a figure two filings print differently, and nothing else', () => {
+    const { compared, disagreements } = compare([filing('264465', 6_532_317_000), filing('253213', 6_532_317_000), filing('258531', 13_556_735_000)]);
+    expect(compared).toBe(1);
+    expect(disagreements).toHaveLength(1);
+    expect(disagreements[0]).toContain('258531: 13,556,735,000');
+    expect(compare([filing('264465', 1), filing('253213', 1)]).disagreements).toEqual([]);
   });
 });
 

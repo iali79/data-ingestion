@@ -27,13 +27,13 @@ dropped it. Generated from `src/financials/rulebook.ts` (`npm run docs`); edit t
 | C8 | normalize | In an annual filing, a column that prints only its year ends at the financial year-end (from the balance sheet) and covers 12 months. Never applied to interim filings. | describeColumns. |
 | R1 | labels | A row is an item only when its printed label matches that item’s wording. Similar is not enough: reserves are not retained earnings, intangible assets are not goodwill. Unmatched rows are reported, not guessed. | LABEL_RULES in labels.ts, specific wording first. |
 | R2 | labels | A row is one item, except one "basic and diluted" EPS line, which is both. | matchRows. |
-| R3 | labels | An uncaptioned total belongs to the heading it closes (the last one under "CURRENT ASSETS" is total current assets), or on the income statement to the split tax lines directly above it. | uncaptionedTotal in labels.ts. |
+| R3 | labels | An uncaptioned total belongs to the heading it closes only when the captioned rows under that heading add up to it (the last such row, so a "fixed assets" subtotal is not the non-current assets, and a grand total printed after "Contingencies" is not the current liabilities); authorised capital is not part of equity. On the income statement, an uncaptioned total directly below split tax lines is the taxation. | uncaptionedTotal and addsUpUnder in labels.ts. |
 | R5 | validate | An item printed on two rows with different figures is ambiguous and not delivered. | valuesFromMatches. |
 | R6 | labels | Items must sit where they belong: assets above "EQUITY AND LIABILITIES", equity and liabilities below; cash flow items in their operating, investing or financing section. | placeRows and the side/section/under conditions of each label rule. |
 | U1 | normalize | Figures are scaled by the unit the page states ("Rupees in ’000" is x1,000). A statement that prints no unit takes the unit of the filing’s other statements when they all agree. | unitFromText over the header, title and first rows; inheritUnits in filing.ts. |
 | U2 | validate | Earnings per share is rupees per share and is never scaled. | PER_SHARE. |
 | U3 | validate | Income-statement expenses are delivered as positive amounts; cash flow figures keep their printed sign. | EXPENSES. |
-| U4 | validate | Items that cannot be negative (revenue, total assets, cash, ...) are dropped when read negative. | NON_NEGATIVE. |
+| U4 | validate | Items that cannot be negative (revenue, total assets, cash, proceeds from selling assets or investments, ...) are dropped when read negative. | NON_NEGATIVE. |
 | A1 | validate | Every printed total must equal the rows above it, column by column (to rounding). Rows in a sum that adds up are confirmed. | confirmTotals; the confirming total is listed in the figure’s checks. |
 | I1 | validate | Revenue - cost of sales = gross profit. | IDENTITIES; on failure all three are dropped. |
 | I2 | validate | Profit before tax - taxation = profit after tax. | IDENTITIES; on failure all three are dropped. |

@@ -16,6 +16,8 @@ export const NON_NEGATIVE = new Set([
   'revenue', 'cash_and_equivalents', 'short_term_investments', 'net_receivables', 'total_inventory',
   'total_current_assets', 'net_ppe', 'total_assets', 'total_current_liabilities', 'accounts_payable',
   'short_term_borrowings', 'share_capital', 'total_liabilities',
+  // Cash flow proceeds are inflows: a negative one is a misprint or a shifted row.
+  'sale_of_assets', 'sale_of_investments',
 ]);
 
 /** Rupees per share: never multiplied by the page's unit. */

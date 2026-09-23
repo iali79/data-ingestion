@@ -34,7 +34,9 @@ with its formula, or null. Staged so each step does only what it must, and write
 
 The rules are listed in [RULEBOOK.md](RULEBOOK.md), the output in [FINANCIALS.md](FINANCIALS.md).
 The manual **Evaluate** workflow runs the pipeline on sample filings as a dry run (no identity token,
-no API client) and scores it against hand-checked figures. The scheduled Extract workflow still
+no API client) and scores it against hand-checked figures. Its last job compares filings with each
+other: a figure printed in two filings (the current period of one, the comparative of the next)
+must agree, and every difference is listed for review (`src/crosscheck.ts`). The scheduled Extract workflow still
 submits schema version 1 until the ingest API accepts version 2.
 
 ## Document corpus

@@ -133,6 +133,7 @@ export function buildStatementTable(
     if (dating && !titleExtra.includes(dating)) titleExtra.push(dating);
     const heading = labelHeader.replace(/(?:for\s+the|as\s+(?:at|on))\s.*$/iu, '').trim();
     if (heading && !/^note$/iu.test(heading)) pending.push(heading);
+    for (const text of grid.leading(layout.label)) pending.push(clean(text));
     for (let r = grid.bodyStart; r < grid.rows; r++) {
       let label = clean(grid.cell(r, layout.label));
       const cells = layout.values.map((col) => clean(grid.cell(r, col)));
@@ -269,6 +270,8 @@ export interface Grid {
    * under it that print no year of their own.
    */
   valueHeaders(cols: number[]): string[];
+  /** Non-header text above the body in a column, in reading order: headings beside the column headers. */
+  leading(col: number): string[];
 }
 
 /** A dense view of Docling's cells; header rows are the leading rows made only of column headers. */
@@ -277,16 +280,29 @@ export function toGrid(table: PageTable): Grid {
   const headerCells: Array<{ col: number; colSpan: number; row: number; text: string }> = [];
   const headerRow = new Array<boolean>(table.rows).fill(true);
   const filled = new Array<boolean>(table.rows).fill(false);
+  const headerCount = new Array<number>(table.rows).fill(0);
+  // Non-header text in a row, by column: a heading beside the column headers ("ASSETS | Note | 2018").
+  const other: Array<Array<{ col: number; text: string }>> = Array.from({ length: table.rows }, () => []);
   for (const cell of table.cells) {
     if (cell.row >= table.rows || cell.col >= table.cols) continue;
     matrix[cell.row]![cell.col] = cell.text;
     if (cell.text.trim()) filled[cell.row] = true;
     // A cell the table model did not flag can still be header wording ("Note", "'000'-----").
-    if (cell.columnHeader || HEADER_WORDS.test(cell.text.trim())) headerCells.push({ col: cell.col, colSpan: cell.colSpan, row: cell.row, text: cell.text });
-    else if (cell.text.trim()) headerRow[cell.row] = false;
+    if (cell.columnHeader || HEADER_WORDS.test(cell.text.trim())) {
+      headerCells.push({ col: cell.col, colSpan: cell.colSpan, row: cell.row, text: cell.text });
+      headerCount[cell.row]!++;
+    } else if (cell.text.trim()) other[cell.row]!.push({ col: cell.col, text: cell.text.trim() });
+  }
+  // A row is a header row when all its text is header wording, or when it carries column headers
+  // and only one other cell, a heading with no digits (OCR'd tables rarely flag that cell).
+  for (let r = 0; r < table.rows; r++) {
+    const rest = other[r]!;
+    headerRow[r] = rest.length === 0 || (headerCount[r]! > 0 && rest.length === 1 && !/\d/u.test(rest[0]!.text));
   }
   let bodyStart = 0;
   while (bodyStart < table.rows && (headerRow[bodyStart] || !filled[bodyStart])) bodyStart++;
+  const leading = (col: number): string[] =>
+    other.slice(0, bodyStart).flatMap((cells) => cells.filter((cell) => cell.col === col).map((cell) => cell.text));
   const header = (col: number): string =>
     headerCells
       .filter((cell) => cell.row < bodyStart && cell.col <= col && col < cell.col + Math.max(1, cell.colSpan))
@@ -326,7 +342,7 @@ export function toGrid(table: PageTable): Grid {
     }
     return texts;
   };
-  return { rows: table.rows, cols: table.cols, bodyStart, cell: (row, col) => matrix[row]?.[col] ?? '', header, valueHeaders };
+  return { rows: table.rows, cols: table.cols, bodyStart, cell: (row, col) => matrix[row]?.[col] ?? '', header, leading, valueHeaders };
 }
 
 const YEAR = /(?<![\d,.])(?:19|20)\d{2}(?![\d,.])/u;

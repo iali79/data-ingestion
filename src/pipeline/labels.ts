@@ -239,6 +239,20 @@ function epsItems(label: string): string[] {
   return ['eps_basic'];
 }
 
+/** Authorised capital is printed under the equity heading but is not part of equity. */
+const AUTHORISED = /\bauthori[sz]ed\b/u;
+
+function addsUpUnder(rows: StatementRow[], index: number, under: string, placed: Map<string, Placement>): boolean {
+  const row = rows[index]!;
+  const parts = rows.slice(0, index).filter((item) =>
+    placed.get(item.id)?.under === under && normalizeLabel(item.label) && item.values.some((value) => value !== null) &&
+    ![...item.headings, item.label].some((text) => AUTHORISED.test(normalizeLabel(text))));
+  if (parts.length === 0) return false;
+  return row.values.some((value, column) =>
+    value !== null && value !== undefined && parts.every((item) => item.values[column] !== null && item.values[column] !== undefined) &&
+    Math.abs(parts.reduce((total, item) => total + item.values[column]!, 0) - value) <= 0.5 * parts.length + 0.5);
+}
+
 /**
  * An uncaptioned row is a total. On the balance sheet it is the total of the heading it closes --
  * only the last uncaptioned row before the next heading, since a heading can hold a sub-subtotal
@@ -250,9 +264,15 @@ function uncaptionedTotal(kind: Statement, rows: StatementRow[], index: number, 
   if (kind === 'balance') {
     const under = placed.get(row.id)?.under;
     if (!under) return null;
-    for (const later of rows.slice(index + 1)) {
-      if (placed.get(later.id)?.under !== under) break;
-      if (!normalizeLabel(later.label)) return null;
+    // It must add up: the captioned rows under the heading, down to it, sum to it in a column where
+    // every one of them was read; of several that do (a "fixed assets" subtotal inside non-current
+    // assets), the last is the heading's total. The last uncaptioned row under "CURRENT
+    // LIABILITIES" can be the grand total printed below "Contingencies and commitments", which adds
+    // up to nothing under the heading. (Which of the row's figures are right is for validate.ts.)
+    if (!addsUpUnder(rows, index, under, placed)) return null;
+    for (let later = index + 1; later < rows.length; later++) {
+      if (placed.get(rows[later]!.id)?.under !== under) break;
+      if (!normalizeLabel(rows[later]!.label) && addsUpUnder(rows, later, under, placed)) return null;
     }
     return { item: HEADING_TOTAL[under], rule: `uncaptioned total closing ${under.replace(/_/gu, ' ')}` };
   }
