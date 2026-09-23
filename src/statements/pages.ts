@@ -16,6 +16,21 @@ export interface StatementPage {
   basis: ConsolidationBasis;
   /** One page, or two when a balance sheet continues onto the next page. */
   pages: ExtractedPage[];
+  /**
+   * When two statements are printed side by side, the character columns of this one in the
+   * layout text ([start, end)); `cropped` applies it. Absent for a full-width statement.
+   */
+  columns?: [number, number];
+}
+
+/** The statement's own text: its page(s), cut to its column when printed side by side. */
+export function cropped(statement: StatementPage): Array<{ pageNumber: number; text: string }> {
+  return statement.pages.map((page) => ({
+    pageNumber: page.pageNumber,
+    text: statement.columns
+      ? page.text.split('\n').map((line) => line.slice(statement.columns![0], statement.columns![1])).join('\n')
+      : page.text,
+  }));
 }
 
 const HEADING_LINES = 14;
@@ -40,6 +55,9 @@ const TITLE_PREFIX = /^(?:(?:un-?consolidated|consolidated|separate|standalone|c
 const SUMMARY_PAGE =
   /\bfinancial\s+highlights\b|\byears?\s+at\s+a\s+glance\b|\b(?:six|6|ten|10)[\s-]years?'?\b|\bhorizontal\s+analysis\b|\bvertical\s+analysis\b|\bkey\s+(?:financial\s+)?(?:data|indicators)\b|\bdupont\b|\bvalue\s+added\b/iu;
 
+/** Titles that are not read but still mark a column edge when printed beside one that is. */
+const OTHER_TITLE = /^(statement\s+of\s+(?:other\s+)?comprehensive\s+income|statement\s+of\s+changes\s+in\s+equity|notes\s+to\s+the)\b/iu;
+
 /** Annual reports print two statements side by side; their headings share a line, split by a wide gap. */
 const COLUMN_GAP = /\s{3,}/u;
 
@@ -61,8 +79,10 @@ export function findStatementPages(document: ExtractedDocument): StatementPage[]
     if (figureLines(page.text) < MIN_FIGURE_LINES) continue;
 
     const titles = titlesOn(segments);
-    for (const { type, basis: titleBasis } of titles) {
+    const offsets = titleOffsets(page.text);
+    for (const [position, { type, basis: titleBasis }] of titles.entries()) {
       const basis = titleBasis ?? bannerBasis;
+      const columns = sideBySideColumns(offsets, type);
       const pages = [page];
       // A balance sheet split over two pages: assets on one, equity and liabilities on the next.
       const next = document.pages[index + 1];
@@ -79,7 +99,8 @@ export function findStatementPages(document: ExtractedDocument): StatementPage[]
       // The same statement found twice for one basis: the first is the statement itself (they
       // precede the notes), so later repeats are ignored.
       if (found.some((item) => item.statementType === type && item.basis === basis)) continue;
-      found.push({ statementType: type, basis, pages });
+      void position;
+      found.push({ statementType: type, basis, pages, ...(columns ? { columns } : {}) });
     }
   }
   return found;
@@ -98,6 +119,39 @@ function titlesOn(segments: string[]): Array<{ type: StatementType; basis: Conso
     titles.push({ type, basis: word ? basisFrom(word) : null });
   }
   return titles;
+}
+
+/** Where each statement title starts on the heading lines that carry two titles side by side. */
+function titleOffsets(text: string): Array<{ type: StatementType; start: number; lineTitles: number }> {
+  const offsets: Array<{ type: StatementType; start: number; lineTitles: number }> = [];
+  const lines = text.split('\n').filter((line) => line.trim().length > 0).slice(0, HEADING_LINES);
+  for (const line of lines) {
+    const found: Array<{ type: StatementType; start: number }> = [];
+    const cell = /\S+(?:\s\S+)*/gu;
+    for (let match = cell.exec(line); match; match = cell.exec(line)) {
+      const text = match[0].replace(/\s+/gu, ' ');
+      for (const part of text.split(COLUMN_GAP)) {
+        const prefix = TITLE_PREFIX.exec(part)?.[0] ?? '';
+        const rest = part.slice(prefix.length);
+        const type = TITLES.find(([, title]) => title.test(rest))?.[0];
+        if (type) found.push({ type, start: match.index });
+        else if (OTHER_TITLE.test(rest)) found.push({ type: 'other' as StatementType, start: match.index });
+      }
+    }
+    if (found.length >= 2) offsets.push(...found.map((item) => ({ ...item, lineTitles: found.length })));
+  }
+  return offsets;
+}
+
+/** For a statement printed beside another: [its title's start (or 0), the next title's start (or end)). */
+function sideBySideColumns(offsets: Array<{ type: StatementType; start: number }>, type: StatementType): [number, number] | undefined {
+  const mine = offsets.find((item) => item.type === type);
+  if (!mine) return undefined;
+  const starts = [...new Set(offsets.map((item) => item.start))].sort((a, b) => a - b);
+  const index = starts.indexOf(mine.start);
+  const start = index === 0 ? 0 : Math.max(0, mine.start - 2);
+  const end = index + 1 < starts.length ? starts[index + 1]! - 2 : 10_000;
+  return [start, end];
 }
 
 /** The heading block's lines, each split into side-by-side column headings. */

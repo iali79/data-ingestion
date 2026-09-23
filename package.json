@@ -13,7 +13,8 @@
     "test": "vitest run",
     "start": "node dist/run.js",
     "scan": "bash scripts/secret-scan.sh",
-    "evaluate": "node dist/evaluate.js"
+    "evaluate": "node dist/evaluate.js",
+    "docs": "node dist/financials/docs.js"
   },
   "dependencies": {
     "@e965/xlsx": "^0.20.3"

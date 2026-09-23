@@ -1,3 +1,5 @@
+import { request } from 'node:http';
+
 /**
  * Minimal client for a local llama.cpp server (`llama-server`) started by the workflow on the
  * runner itself. Nothing leaves the machine: the model, the page text and the answers all stay on
@@ -47,37 +49,47 @@ export class LlmClient {
 
   /** One chat completion whose reply must match `schema`. Returns the parsed object. */
   async json<T>(system: string, user: string, schema: object, maxTokens: number): Promise<{ value: T; promptTokens: number; completionTokens: number }> {
-    const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      signal: AbortSignal.timeout(this.timeoutMs),
-      body: JSON.stringify({
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
-        temperature: 0,
-        seed: 7,
-        max_tokens: maxTokens,
-        response_format: { type: 'json_schema', json_schema: { name: 'extraction', strict: true, schema } },
-      }),
+    const body = JSON.stringify({
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      temperature: 0,
+      seed: 7,
+      max_tokens: maxTokens,
+      cache_prompt: true,
+      response_format: { type: 'json_schema', json_schema: { name: 'extraction', strict: true, schema } },
     });
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw new Error(`LLM request failed with HTTP ${response.status}`);
-    }
-    const body = (await response.json()) as {
+    // Plain http rather than fetch: a CPU model can take longer than fetch's fixed five-minute
+    // wait for response headers, and this server is always local.
+    const { status, text } = await post(`${this.baseUrl}/v1/chat/completions`, body, this.timeoutMs);
+    if (status !== 200) throw new Error(`LLM request failed with HTTP ${status}`);
+    const parsed = JSON.parse(text) as {
       choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
       usage?: { prompt_tokens?: number; completion_tokens?: number };
     };
-    const choice = body.choices?.[0];
+    const choice = parsed.choices?.[0];
     if (choice?.finish_reason === 'length') throw new Error('LLM reply was cut off');
     const content = choice?.message?.content;
     if (!content) throw new Error('LLM returned no content');
     return {
       value: JSON.parse(content) as T,
-      promptTokens: body.usage?.prompt_tokens ?? 0,
-      completionTokens: body.usage?.completion_tokens ?? 0,
+      promptTokens: parsed.usage?.prompt_tokens ?? 0,
+      completionTokens: parsed.usage?.completion_tokens ?? 0,
     };
   }
+}
+
+function post(url: string, body: string, timeoutMs: number): Promise<{ status: number; text: string }> {
+  return new Promise((resolve, reject) => {
+    const req = request(url, { method: 'POST', headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) } }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk: Buffer) => chunks.push(chunk));
+      res.on('end', () => resolve({ status: res.statusCode ?? 0, text: Buffer.concat(chunks).toString('utf8') }));
+      res.on('error', reject);
+    });
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('LLM request timed out')));
+    req.on('error', reject);
+    req.end(body);
+  });
 }

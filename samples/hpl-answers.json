@@ -1,7 +1,7 @@
 {
- "_about": "Figures typed by hand from the filings' own statement pages, in PKR (EPS in rupees per share). Used by `npm run evaluate` to score extraction. Keyed by source URL, then period label, then item.",
+ "_about": "Figures typed by hand from each filing's own statement pages. PKR; EPS in rupees per share; cash flow outflows negative. Keyed by source URL, then 'statement|period end|months' (months 0 = balance sheet date).",
  "https://financials.psx.com.pk/lib/DownloadPDF.php?id=227575": {
-  "2023-12-31/12M": {
+  "income|2023-12-31|12": {
    "revenue": 21368949000,
    "cost_of_sales": 15842506000,
    "gross_profit": 5526443000,
@@ -15,14 +15,16 @@
    "taxation": 555292000,
    "profit_after_tax": 360807000,
    "eps_basic": 37.41,
-   "eps_diluted": 37.41,
-   "operating_cash_flow": 2515573000,
-   "capital_expenditure": 286730000,
-   "investing_cash_flow": -998361000,
-   "dividend_paid": 70000,
-   "financing_cash_flow": -41123000
+   "eps_diluted": 37.41
   },
-  "2022-12-31/12M": {
+  "cash_flow|2023-12-31|12": {
+   "cash_from_operations": 2515573000,
+   "capital_expenditure": -286730000,
+   "cash_from_investing": -998361000,
+   "dividends_paid": -70000,
+   "cash_from_financing": -41123000
+  },
+  "income|2022-12-31|12": {
    "revenue": 18559884000,
    "cost_of_sales": 13688965000,
    "gross_profit": 4870919000,
@@ -36,42 +38,44 @@
    "taxation": 557284000,
    "profit_after_tax": 166783000,
    "eps_basic": 17.29,
-   "eps_diluted": 17.29,
-   "operating_cash_flow": -1270352000,
-   "capital_expenditure": 573230000,
-   "investing_cash_flow": -434948000,
-   "dividend_paid": 288418000,
-   "financing_cash_flow": -448180000
+   "eps_diluted": 17.29
   },
-  "2023-12-31": {
-   "property_plant_equipment": 1777765000,
-   "stock_in_trade": 4094840000,
-   "trade_debts": 572014000,
-   "cash_and_bank": 117373000,
-   "current_assets": 7816272000,
+  "cash_flow|2022-12-31|12": {
+   "cash_from_operations": -1270352000,
+   "capital_expenditure": -573230000,
+   "cash_from_investing": -434948000,
+   "dividends_paid": -288418000,
+   "cash_from_financing": -448180000
+  },
+  "balance|2023-12-31|0": {
+   "net_ppe": 1777765000,
+   "total_inventory": 4094840000,
+   "net_receivables": 572014000,
+   "cash_and_equivalents": 117373000,
+   "total_current_assets": 7816272000,
    "total_assets": 9870362000,
    "share_capital": 96448000,
-   "total_equity": 5471438000,
+   "shareholders_equity": 5471438000,
    "short_term_borrowings": 0,
-   "trade_and_other_payables": 4272677000,
-   "current_liabilities": 4398924000
+   "accounts_payable": 4272677000,
+   "total_current_liabilities": 4398924000
   },
-  "2022-12-31": {
-   "property_plant_equipment": 1884260000,
-   "stock_in_trade": 4550693000,
-   "trade_debts": 857348000,
-   "cash_and_bank": 233196000,
-   "current_assets": 10244793000,
+  "balance|2022-12-31|0": {
+   "net_ppe": 1884260000,
+   "total_inventory": 4550693000,
+   "net_receivables": 857348000,
+   "cash_and_equivalents": 233196000,
+   "total_current_assets": 10244793000,
    "total_assets": 12331671000,
    "share_capital": 96448000,
-   "total_equity": 5029692000,
+   "shareholders_equity": 5029692000,
    "short_term_borrowings": 700000000,
-   "trade_and_other_payables": 5435086000,
-   "current_liabilities": 7260135000
+   "accounts_payable": 5435086000,
+   "total_current_liabilities": 7260135000
   }
  },
  "https://financials.psx.com.pk/lib/DownloadPDF.php?id=219876": {
-  "2023-09-30/9M": {
+  "income|2023-09-30|9": {
    "revenue": 15879229000,
    "cost_of_sales": 11547720000,
    "gross_profit": 4331509000,
@@ -87,7 +91,7 @@
    "eps_basic": -5.48,
    "eps_diluted": -5.48
   },
-  "2022-09-30/9M": {
+  "income|2022-09-30|9": {
    "revenue": 14045248000,
    "cost_of_sales": 10209007000,
    "gross_profit": 3836241000,
@@ -103,7 +107,7 @@
    "eps_basic": 22.09,
    "eps_diluted": 22.09
   },
-  "2023-09-30/3M": {
+  "income|2023-09-30|3": {
    "revenue": 5831380000,
    "cost_of_sales": 4046218000,
    "gross_profit": 1785162000,
@@ -119,7 +123,7 @@
    "eps_basic": 48.68,
    "eps_diluted": 48.68
   },
-  "2022-09-30/3M": {
+  "income|2022-09-30|3": {
    "revenue": 4521404000,
    "cost_of_sales": 3392044000,
    "gross_profit": 1129360000,
