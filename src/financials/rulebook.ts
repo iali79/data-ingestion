@@ -26,6 +26,7 @@ export const RULES: Rule[] = [
   { id: 'V3', stage: 'normalize', text: 'Figures in brackets are negative.', enforced: 'parseFigure.' },
   { id: 'V4', stage: 'normalize', text: 'The note column holds references, not values.', enforced: 'columnLayout sets the note column aside.' },
   { id: 'R4', stage: 'normalize', text: 'One printed line split across two table rows (part of the label and part of the figures on each) is one row.', enforced: 'mergeSplitRows, only when the two rows’ figures do not overlap and together fill every column.' },
+  { id: 'R4b', stage: 'normalize', text: 'Two printed lines fused into one table row (each cell holding both lines\u2019 figures) are two rows, when every cell holds exactly two figures and the second label starts a total ("Net cash ...", "Total ...").', enforced: 'splitFusedRows; the split rows still pass the arithmetic checks.' },
   // --- columns and periods ------------------------------------------------------------------------
   { id: 'C1', stage: 'normalize', text: 'Each value column is dated by its printed header; the year must be printed.', enforced: 'describeColumns.' },
   { id: 'C2', stage: 'normalize', text: 'A column’s date must be within 18 months of the filing’s period.', enforced: 'columnProblem.' },
@@ -34,6 +35,7 @@ export const RULES: Rule[] = [
   { id: 'C5', stage: 'normalize', text: 'Where a header prints only the year, the date and length come from the statement title ("For the year ended December 31, 2023").', enforced: 'describeColumns.' },
   { id: 'C6', stage: 'normalize', text: 'Two value columns never describe the same period; if they do, neither is used.', enforced: 'describeColumns.' },
   { id: 'C7', stage: 'normalize', text: 'An interim column that does not print its length covers the months since the financial year-end, read from the balance sheet’s comparative column.', enforced: 'monthsSince in conventions.ts.' },
+  { id: 'C8', stage: 'normalize', text: 'In an annual filing, a column that prints only its year ends at the financial year-end (from the balance sheet) and covers 12 months. Never applied to interim filings.', enforced: 'describeColumns.' },
   // --- labels -------------------------------------------------------------------------------------
   { id: 'R1', stage: 'labels', text: 'A row is an item only when its printed label matches that item’s wording. Similar is not enough: reserves are not retained earnings, intangible assets are not goodwill. Unmatched rows are reported, not guessed.', enforced: 'LABEL_RULES in labels.ts, specific wording first.' },
   { id: 'R2', stage: 'labels', text: 'A row is one item, except one "basic and diluted" EPS line, which is both.', enforced: 'matchRows.' },
@@ -41,7 +43,7 @@ export const RULES: Rule[] = [
   { id: 'R5', stage: 'validate', text: 'An item printed on two rows with different figures is ambiguous and not delivered.', enforced: 'valuesFromMatches.' },
   { id: 'R6', stage: 'labels', text: 'Items must sit where they belong: assets above "EQUITY AND LIABILITIES", equity and liabilities below; cash flow items in their operating, investing or financing section.', enforced: 'placeRows and the side/section/under conditions of each label rule.' },
   // --- units and signs ----------------------------------------------------------------------------
-  { id: 'U1', stage: 'normalize', text: 'Figures are scaled by the unit the page states ("Rupees in ’000" is x1,000).', enforced: 'unitFromText over the header, title and first rows.' },
+  { id: 'U1', stage: 'normalize', text: 'Figures are scaled by the unit the page states ("Rupees in ’000" is x1,000). A statement that prints no unit takes the unit of the filing\u2019s other statements when they all agree.', enforced: 'unitFromText over the header, title and first rows; inheritUnits in filing.ts.' },
   { id: 'U2', stage: 'validate', text: 'Earnings per share is rupees per share and is never scaled.', enforced: 'PER_SHARE.' },
   { id: 'U3', stage: 'validate', text: 'Income-statement expenses are delivered as positive amounts; cash flow figures keep their printed sign.', enforced: 'EXPENSES.' },
   { id: 'U4', stage: 'validate', text: 'Items that cannot be negative (revenue, total assets, cash, ...) are dropped when read negative.', enforced: 'NON_NEGATIVE.' },

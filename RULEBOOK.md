@@ -16,6 +16,7 @@ dropped it. Generated from `src/financials/rulebook.ts` (`npm run docs`); edit t
 | V3 | normalize | Figures in brackets are negative. | parseFigure. |
 | V4 | normalize | The note column holds references, not values. | columnLayout sets the note column aside. |
 | R4 | normalize | One printed line split across two table rows (part of the label and part of the figures on each) is one row. | mergeSplitRows, only when the two rows’ figures do not overlap and together fill every column. |
+| R4b | normalize | Two printed lines fused into one table row (each cell holding both lines’ figures) are two rows, when every cell holds exactly two figures and the second label starts a total ("Net cash ...", "Total ..."). | splitFusedRows; the split rows still pass the arithmetic checks. |
 | C1 | normalize | Each value column is dated by its printed header; the year must be printed. | describeColumns. |
 | C2 | normalize | A column’s date must be within 18 months of the filing’s period. | columnProblem. |
 | C3 | normalize | Flow columns cover 3, 6, 9 or 12 months; balance-sheet columns are a date. | columnProblem. |
@@ -23,12 +24,13 @@ dropped it. Generated from `src/financials/rulebook.ts` (`npm run docs`); edit t
 | C5 | normalize | Where a header prints only the year, the date and length come from the statement title ("For the year ended December 31, 2023"). | describeColumns. |
 | C6 | normalize | Two value columns never describe the same period; if they do, neither is used. | describeColumns. |
 | C7 | normalize | An interim column that does not print its length covers the months since the financial year-end, read from the balance sheet’s comparative column. | monthsSince in conventions.ts. |
+| C8 | normalize | In an annual filing, a column that prints only its year ends at the financial year-end (from the balance sheet) and covers 12 months. Never applied to interim filings. | describeColumns. |
 | R1 | labels | A row is an item only when its printed label matches that item’s wording. Similar is not enough: reserves are not retained earnings, intangible assets are not goodwill. Unmatched rows are reported, not guessed. | LABEL_RULES in labels.ts, specific wording first. |
 | R2 | labels | A row is one item, except one "basic and diluted" EPS line, which is both. | matchRows. |
 | R3 | labels | An uncaptioned total belongs to the heading it closes (the last one under "CURRENT ASSETS" is total current assets), or on the income statement to the split tax lines directly above it. | uncaptionedTotal in labels.ts. |
 | R5 | validate | An item printed on two rows with different figures is ambiguous and not delivered. | valuesFromMatches. |
 | R6 | labels | Items must sit where they belong: assets above "EQUITY AND LIABILITIES", equity and liabilities below; cash flow items in their operating, investing or financing section. | placeRows and the side/section/under conditions of each label rule. |
-| U1 | normalize | Figures are scaled by the unit the page states ("Rupees in ’000" is x1,000). | unitFromText over the header, title and first rows. |
+| U1 | normalize | Figures are scaled by the unit the page states ("Rupees in ’000" is x1,000). A statement that prints no unit takes the unit of the filing’s other statements when they all agree. | unitFromText over the header, title and first rows; inheritUnits in filing.ts. |
 | U2 | validate | Earnings per share is rupees per share and is never scaled. | PER_SHARE. |
 | U3 | validate | Income-statement expenses are delivered as positive amounts; cash flow figures keep their printed sign. | EXPENSES. |
 | U4 | validate | Items that cannot be negative (revenue, total assets, cash, ...) are dropped when read negative. | NON_NEGATIVE. |

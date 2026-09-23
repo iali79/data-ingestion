@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { DocumentAnalysis, PageAnalysis } from '../src/pipeline/analyse.js';
 import { classifyPages } from '../src/pipeline/classify.js';
 import { matchRows, normalizeLabel } from '../src/pipeline/labels.js';
-import { describeColumns, parseFigure, type StatementRow, type StatementTable } from '../src/pipeline/normalize.js';
+import { buildStatementTable, describeColumns, parseFigure, type StatementRow, type StatementTable } from '../src/pipeline/normalize.js';
+import type { PageTables, TableCell } from '../src/pipeline/tables.js';
 import { fromSidecar } from '../src/pipeline/tables.js';
 import { applyChecks, confirmTotals, valuesFromMatches, type Drop } from '../src/pipeline/validate.js';
 
@@ -58,6 +59,7 @@ function table(rows: StatementRow[], statementType: StatementTable['statementTyp
     method: 'docling-pdf',
     title: '',
     unitScale: 1000,
+    unitPrinted: true,
     columns: [{ index: 0, header: '2023', periodEnd: '2023-12-31', months: statementType === 'balance_sheet' ? 0 : 12, kept: true }],
     rows,
   problems: [],
@@ -108,6 +110,78 @@ describe('labels', () => {
     ];
     const items = matchRows('income', rows).matches.map((match) => `${match.row.id}:${match.items.join('+')}`);
     expect(items).toEqual(['a:profit_before_tax', 'd:taxation', 'e:eps_basic+eps_diluted']);
+  });
+});
+
+describe('table repairs', () => {
+  it('separates a heading fused onto its first row and closes the assets headings on the claims side', () => {
+    const rows = [
+      row('a', 'Stock-in-trade', ['4,312,764'], ['ASSETS', 'CURRENT ASSETS']),
+      row('b', '', ['4,312,764']),
+      row('c', 'TOTAL ASSETS', ['4,312,764']),
+      row('d', 'Share capital', ['96,448'], ['EQUITY AND LIABILITIES', 'SHARE CAPITAL AND RESERVES']),
+      row('e', 'Reserves', ['100']),
+      row('f', '', ['96,548']),
+    ];
+    const items = Object.fromEntries(matchRows('balance', rows).matches.map((match) => [match.row.id, match.items.join()]));
+    expect(items).toMatchObject({ b: 'total_current_assets', f: 'shareholders_equity' });
+  });
+
+  it('takes the exchange line only below the activity sections', () => {
+    const rows = [
+      row('a', 'Exchange loss - net', ['100'], ['CASH FLOWS FROM OPERATING ACTIVITIES']),
+      row('b', 'Net cash generated from operating activities', ['1,000']),
+      row('c', 'Net increase in cash and cash equivalents', ['1,000']),
+      row('d', 'Net foreign exchange differences', ['(5)']),
+    ];
+    const items = Object.fromEntries(matchRows('cash_flow', rows).matches.map((match) => [match.row.id, match.items.join()]));
+    expect(items.a).toBeUndefined();
+    expect(items.d).toBe('fx_adjustments');
+  });
+});
+
+describe('statement table from a cell grid', () => {
+  const cell = (row: number, col: number, text: string, extra: Partial<TableCell> = {}): TableCell => ({ row, col, rowSpan: 1, colSpan: 1, text, columnHeader: false, rowHeader: false, rowSection: false, ...extra });
+  const page: PageTables = {
+    pageNumber: 10,
+    method: 'docling-pdf',
+    width: 612,
+    height: 792,
+    texts: [{ label: 'section_header', text: 'Statement of Cash Flows', bbox: [40, 40, 400, 60] }, { label: 'text', text: 'For the nine months ended September 30, 2025', bbox: [40, 62, 400, 75] }],
+    tables: [
+      {
+        bbox: [40, 80, 580, 700],
+        rows: 6,
+        cols: 3,
+        cells: [
+          cell(0, 1, 'September 30, 2025', { columnHeader: true }),
+          cell(0, 2, 'September 30,', { columnHeader: true }),
+          cell(1, 0, 'Note'),
+          cell(1, 1, "2024 ------ Rupees in '000 ------", { columnHeader: true, colSpan: 2 }),
+          cell(2, 0, 'CASH FLOWS FROM FINANCING ACTIVITIES Dividends paid'),
+          cell(2, 1, '(1,537,772)'),
+          cell(2, 2, '(528,293)'),
+          cell(3, 0, 'Lease rentals paid Net cash used in financing activities'),
+          cell(3, 1, '(29,656) (1,567,428)'),
+          cell(3, 2, '- (528,293)'),
+          cell(4, 0, 'NET INCREASE IN CASH AND CASH EQUIVALENTS'),
+          cell(4, 1, '(29,618)'),
+          cell(4, 2, '(1,292,033)'),
+        ],
+      },
+    ],
+  };
+  const table = buildStatementTable({ statementType: 'cash_flow', basis: 'unconsolidated', pages: [10] }, [page], { periodEnded: '2025-09-30', yearEndMonthDay: '-12-31' });
+
+  it('gives a merged header cell\'s years to the columns under it', () => {
+    expect(table.columns.map((column) => `${column.periodEnd}/${column.months}`)).toEqual(['2025-09-30/9', '2024-09-30/9']);
+    expect(table.unitScale).toBe(1000);
+  });
+
+  it('splits a fused heading and a fused total row (R4b)', () => {
+    expect(table.rows.map((item) => item.label)).toEqual(['Dividends paid', 'Lease rentals paid', 'Net cash used in financing activities', 'NET INCREASE IN CASH AND CASH EQUIVALENTS']);
+    expect(table.rows[0]!.headings).toEqual(['CASH FLOWS FROM FINANCING ACTIVITIES']);
+    expect(table.rows[2]!.values).toEqual([-1_567_428, -528_293]);
   });
 });
 

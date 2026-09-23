@@ -166,7 +166,8 @@ export function classifyPages(analysis: DocumentAnalysis): Classification {
         decision.reasons.push(`${reasons.join(', ')}: repeat of an earlier ${type.replace('_', ' ')} (${basis})`);
         continue;
       }
-      const columns = titles.length > 1 ? sideBySideColumns(offsets, type) : undefined;
+      // Beside another statement on the same heading line (read or not -- changes in equity, notes).
+      const columns = offsets.length > 1 ? sideBySideColumns(offsets, type) : undefined;
       const pages = [page.pageNumber];
       const next = analysis.pages[index + 1];
       if (titles.length === 1 && next && continuesOnto(type, page, next)) {

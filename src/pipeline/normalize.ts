@@ -45,7 +45,9 @@ export interface StatementTable {
   pages: number[];
   method: 'docling-pdf' | 'docling-ocr' | 'mixed';
   title: string;
+  /** Rupees per printed unit; null when the statement prints no unit (see `inheritUnits`). */
   unitScale: number;
+  unitPrinted: boolean;
   columns: StatementColumn[];
   rows: StatementRow[];
   problems: string[];
@@ -59,6 +61,9 @@ const NOTE_REF = /^\d{1,2}(?:\.\d{1,2}){0,2}(?:\s*[&,]\s*\d{1,2}(?:\.\d{1,2}){0,
 const FIGURE = /^\(?-?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$|^\(?-?\d+(?:\.\d+)?\)?$/u;
 const DASH = /^[-–—]+$/u;
 const PERIOD_WINDOW_DAYS = 540;
+/** Section headings printed in capitals, which a table model can fuse onto the row below them. */
+const FUSED_HEADING =
+  /^((?:NON[- ]?CURRENT |CURRENT )?(?:ASSETS|LIABILITIES)|EQUITY AND LIABILITIES|SHARE CAPITAL AND RESERVES|CAPITAL AND RESERVES|EQUITY|CASH FLOWS? (?:FROM|USED IN) (?:OPERATING|INVESTING|FINANCING) ACTIVITIES)\s+([A-Z][a-z].*)$/u;
 
 /**
  * Builds one statement from the tables on its pages. On a page shared with another statement
@@ -78,11 +83,8 @@ export function buildStatementTable(
     pieces.push(...tablesFor(statement, page).map((table) => ({ page, table })));
   }
   const pageTexts = statement.pages.flatMap((pageNumber) => pages.find((item) => item.pageNumber === pageNumber)?.texts ?? []);
-  const title = pageTexts
-    .filter((text) => text.label === 'section_header' || text.label === 'title' || text.label === 'text' || text.label === 'page_header')
-    .slice(0, 6)
-    .map((text) => text.text)
-    .join(' ');
+  const titleExtra: string[] = [];
+  let title = titleAbove(statement, pages, pieces);
   const methods = new Set(pieces.map((piece) => piece.page.method));
   const base: StatementTable = {
     statementType: statement.statementType,
@@ -91,6 +93,7 @@ export function buildStatementTable(
     method: methods.size > 1 ? 'mixed' : ([...methods][0] ?? 'docling-pdf'),
     title,
     unitScale: 1,
+    unitPrinted: false,
     columns: [],
     rows: [],
     problems,
@@ -118,22 +121,33 @@ export function buildStatementTable(
       problems.push(`table on p.${page.pageNumber} has ${layout.values.length} value columns, expected ${valueCount}; skipped`);
       continue;
     }
-    for (const [position, col] of layout.values.entries()) {
-      const text = grid.header(col);
+    for (const [position, text] of grid.valueHeaders(layout.values).entries()) {
       if (text && !headerTexts[position]!.includes(text)) headerTexts[position] = `${headerTexts[position]} ${text}`.trim();
     }
     // The label column's header cell is often the first heading ("ASSETS", "CASH FLOWS FROM
     // OPERATING ACTIVITIES").
     const labelHeader = grid.header(layout.label);
-    if (labelHeader && !/^note$/iu.test(labelHeader)) pending.push(labelHeader);
+    // A dating line printed inside the table ("For the Year Ended December 31, 2025") belongs to
+    // the title, not to the rows.
+    const dating = /(?:for\s+the|as\s+(?:at|on))\s.*$/iu.exec(labelHeader)?.[0];
+    if (dating && !titleExtra.includes(dating)) titleExtra.push(dating);
+    const heading = labelHeader.replace(/(?:for\s+the|as\s+(?:at|on))\s.*$/iu, '').trim();
+    if (heading && !/^note$/iu.test(heading)) pending.push(heading);
     for (let r = grid.bodyStart; r < grid.rows; r++) {
-      const label = clean(grid.cell(r, layout.label));
+      let label = clean(grid.cell(r, layout.label));
       const cells = layout.values.map((col) => clean(grid.cell(r, col)));
       const note = layout.note === null ? null : clean(grid.cell(r, layout.note)) || null;
       const values = cells.map(parseFigure);
-      if (values.every((value) => value === null) && cells.every((cell) => cell === '')) {
+      // No figure anywhere on the row ("ASSETS   (Un-audited)   (Audited)"): a heading.
+      if (values.every((value) => value === null) && cells.every((cell) => !/\d/u.test(cell))) {
         if (label) pending.push(label);
         continue;
+      }
+      // A heading fused onto the first row under it ("SHARE CAPITAL AND RESERVES Share capital").
+      const fused = FUSED_HEADING.exec(label);
+      if (fused && fused[2]) {
+        pending.push(fused[1]!);
+        label = fused[2];
       }
       rows.push({
         id: `p${page.pageNumber}.r${r}`,
@@ -149,13 +163,41 @@ export function buildStatementTable(
     }
   }
 
+  splitFusedRows(rows);
   mergeSplitRows(rows);
+  if (titleExtra.length > 0) title = `${title} ${titleExtra.join(' ')}`.trim();
   // The unit ("Rupees in '000") is printed in the header, the title block, or a body cell of the
   // first row, depending on how the table was drawn.
   const cellTexts = grids.flatMap(({ grid }) => Array.from({ length: Math.min(grid.rows, 4) }, (_, r) => Array.from({ length: grid.cols }, (_, c) => grid.cell(r, c))).flat());
-  const unitScale = unitFromText([...headerTexts, title, ...pageTexts.map((text) => text.text), ...cellTexts].join('\n')) ?? 1;
+  const unitText = [...headerTexts, title, ...pageTexts.map((text) => text.text), ...cellTexts].join('\n');
+  // "Rupees (Un-audited) | in '000" -- the unit split across two header cells.
+  const unitScale = unitFromText(unitText) ?? (/\brupees\b[^\n]{0,40}?\n?[^\n]{0,20}?['‘’`]\s*000\b/iu.test(unitText) ? 1_000 : null);
   const columns = describeColumns(headerTexts, title, kind, filing);
-  return { ...base, unitScale, columns, rows };
+  return { ...base, title, unitScale: unitScale ?? 1, unitPrinted: unitScale !== null, columns, rows };
+}
+
+/**
+ * Rule R4b: two printed lines that the table model fused into one row, each cell holding both
+ * lines' figures ("Lease rentals paid Net cash used in financing activities" | "(29,656)
+ * (2,767,428)"). Split back only when every value cell holds exactly two figures (or dashes) and
+ * the second label starts a total ("Net cash ...", "Net increase ...", "Cash and cash equivalents
+ * ...", "Total ..."). The two rows still have to pass the arithmetic checks.
+ */
+function splitFusedRows(rows: StatementRow[]): void {
+  const second = /^(.+?)\s+((?:net\s+(?:cash|increase|decrease|\(?(?:increase|decrease)\)?|foreign)|cash\s+and\s+cash\s+equivalents|total)\b.*)$/iu;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]!;
+    const labels = second.exec(row.label);
+    if (!labels) continue;
+    const parts = row.cells.map((cell) => cell.split(/\s+/u).filter(Boolean));
+    if (!parts.every((tokens) => tokens.length === 2 && tokens.every((token) => parseFigure(token) !== null))) continue;
+    const [firstCells, secondCells] = [parts.map((tokens) => tokens[0]!), parts.map((tokens) => tokens[1]!)];
+    rows.splice(i, 1,
+      { ...row, label: labels[1]!, cells: firstCells, values: firstCells.map(parseFigure) },
+      { ...row, id: `${row.id}b`, label: labels[2]!, cells: secondCells, values: secondCells.map(parseFigure), note: null, headings: [] },
+    );
+    i++;
+  }
 }
 
 /**
@@ -181,6 +223,26 @@ function mergeSplitRows(rows: StatementRow[]): void {
   }
 }
 
+/**
+ * The statement's title block: the headings and lines printed above its table, in the same
+ * horizontal band -- not whatever else shares the page (the end of an auditor's report on the
+ * other half of a spread).
+ */
+function titleAbove(statement: SelectedStatement, pages: PageTables[], pieces: Array<{ page: PageTables; table: PageTable }>): string {
+  const first = pieces[0];
+  const kinds = new Set(['section_header', 'title', 'text', 'page_header']);
+  if (!first) {
+    const page = pages.find((item) => item.pageNumber === statement.pages[0]);
+    return (page?.texts ?? []).filter((text) => kinds.has(text.label)).slice(0, 6).map((text) => text.text).join(' ');
+  }
+  const [left, top, right] = first.table.bbox;
+  return first.page.texts
+    .filter((text) => kinds.has(text.label) && text.bbox[1] < top && text.bbox[2] > left && text.bbox[0] < right)
+    .slice(-6)
+    .map((text) => text.text)
+    .join(' ');
+}
+
 /** The tables of a page that belong to this statement: all of them, or on a shared page those under its title. */
 function tablesFor(statement: SelectedStatement, page: PageTables): PageTable[] {
   const usable = page.tables.filter((table) => table.rows >= 3 && table.cols >= 2);
@@ -201,6 +263,12 @@ export interface Grid {
   bodyStart: number;
   cell(row: number, col: number): string;
   header(col: number): string;
+  /**
+   * Header text per value column. A header cell spanning several value columns that prints one
+   * year per column ("2024 2024 --- Rupees in '000 ---") gives its years, in order, to the columns
+   * under it that print no year of their own.
+   */
+  valueHeaders(cols: number[]): string[];
 }
 
 /** A dense view of Docling's cells; header rows are the leading rows made only of column headers. */
@@ -213,7 +281,8 @@ export function toGrid(table: PageTable): Grid {
     if (cell.row >= table.rows || cell.col >= table.cols) continue;
     matrix[cell.row]![cell.col] = cell.text;
     if (cell.text.trim()) filled[cell.row] = true;
-    if (cell.columnHeader) headerCells.push({ col: cell.col, colSpan: cell.colSpan, row: cell.row, text: cell.text });
+    // A cell the table model did not flag can still be header wording ("Note", "'000'-----").
+    if (cell.columnHeader || HEADER_WORDS.test(cell.text.trim())) headerCells.push({ col: cell.col, colSpan: cell.colSpan, row: cell.row, text: cell.text });
     else if (cell.text.trim()) headerRow[cell.row] = false;
   }
   let bodyStart = 0;
@@ -225,8 +294,45 @@ export function toGrid(table: PageTable): Grid {
       .map((cell) => cell.text.trim())
       .filter(Boolean)
       .join(' ');
-  return { rows: table.rows, cols: table.cols, bodyStart, cell: (row, col) => matrix[row]?.[col] ?? '', header };
+  const valueHeaders = (cols: number[]): string[] => {
+    const own = cols.map((col) =>
+      headerCells
+        .filter((cell) => cell.row < bodyStart && cell.col === col && Math.max(1, cell.colSpan) === 1)
+        .sort((a, b) => a.row - b.row)
+        .map((cell) => cell.text.trim())
+        .filter(Boolean)
+        .join(' '),
+    );
+    const extra = cols.map(() => [] as string[]);
+    for (const cell of headerCells.filter((item) => item.row < bodyStart).sort((a, b) => a.row - b.row)) {
+      const spanned = cols.map((col, index) => ({ col, index })).filter(({ col }) => cell.col <= col && col < cell.col + Math.max(1, cell.colSpan));
+      if (spanned.length === 0 || (spanned.length === 1 && Math.max(1, cell.colSpan) === 1 && spanned[0]!.col === cell.col)) continue;
+      const years = [...cell.text.matchAll(/(?<![\d,.])((?:19|20)\d{2})(?![\d,.])/gu)].map((match) => match[1]!);
+      const rest = cell.text.replace(/(?<![\d,.])(?:19|20)\d{2}(?![\d,.])/gu, ' ').replace(/\s+/gu, ' ').trim();
+      const lacking = spanned.filter(({ index }) => !YEAR.test(own[index]!) && !extra[index]!.some((text) => YEAR.test(text)));
+      if (years.length > 0 && years.length === lacking.length) {
+        lacking.forEach(({ index }, position) => extra[index]!.push(years[position]!));
+        for (const { index } of spanned) if (rest) extra[index]!.push(rest);
+      } else for (const { index } of spanned) extra[index]!.push(cell.text.trim());
+    }
+    const texts = cols.map((_, index) => [...extra[index]!.filter((text) => !YEAR.test(text)), own[index]!, ...extra[index]!.filter((text) => YEAR.test(text))].filter(Boolean).join(' ').trim());
+    // A table model can put every year in one column's cell ("March 31, March 2025 2024" / "31,").
+    // When some column has no year and the header prints exactly one year per column, the years
+    // are the columns' in reading order.
+    const yearsOf = (text: string) => [...text.matchAll(/(?<![\d,.])((?:19|20)\d{2})(?![\d,.])/gu)].map((match) => match[1]!);
+    if (texts.some((text) => !YEAR.test(text))) {
+      const all = texts.flatMap(yearsOf);
+      if (all.length === cols.length) return texts.map((text, index) => `${text.replace(/(?<![\d,.])(?:19|20)\d{2}(?![\d,.])/gu, ' ').replace(/\s+/gu, ' ').trim()} ${all[index]}`.trim());
+    }
+    return texts;
+  };
+  return { rows: table.rows, cols: table.cols, bodyStart, cell: (row, col) => matrix[row]?.[col] ?? '', header, valueHeaders };
 }
+
+const YEAR = /(?<![\d,.])(?:19|20)\d{2}(?![\d,.])/u;
+/** Header wording: note, unit, audit status, dates and years -- never a caption or a figure. */
+const HEADER_WORDS =
+  /^(?:(?:for\s+the|as\s+(?:at|on))\s.*|notes?|\(?(?:un-?)?audited\)?|\(?restated\)?|[-–—_ ]*(?:rupees|rs\.?|pkr)?[^a-z\d]*(?:in\s+)?['‘’`]?\s*000['‘’`]?[-–—_ ]*|[-–—_ ]*(?:rupees|rs\.?)(?:\s+in\s+(?:thousands?|millions?))?[-–—_ ]*|(?:(?:19|20)\d{2}\s*)+|[a-z]+\s+\d{1,2},?(?:\s+(?:19|20)\d{2})?)$/iu;
 
 /** Which grid column holds labels, which the note references, which values. */
 export function columnLayout(grid: Grid): { label: number; note: number | null; values: number[] } {
@@ -268,10 +374,16 @@ export function describeColumns(
   const columns: StatementColumn[] = headers.map((header, index) => {
     const years = [...header.matchAll(/(?<![\d,.])((?:19|20)\d{2})(?![\d,.])/gu)].map((match) => match[1]!);
     const year = years.at(-1) ?? null;
-    const date = monthDay(header) ?? titleDate;
+    // C8: an annual filing's column that prints only its year ends at the financial year-end.
+    const annualFiling = /^\d{4}$/u.test(filing.periodEnded);
+    const date = monthDay(header) ?? titleDate ?? (annualFiling ? filing.yearEndMonthDay ?? null : null);
     const phrase = PERIOD_PHRASE.exec(header);
     const months =
-      kind === 'balance' ? 0 : phrase ? phraseMonths(phrase[0]) : titleMonths ?? (date && filing.yearEndMonthDay ? monthsSince(filing.yearEndMonthDay, date) : null);
+      kind === 'balance'
+        ? 0
+        : phrase
+          ? phraseMonths(phrase[0])
+          : titleMonths ?? (date && filing.yearEndMonthDay ? monthsSince(filing.yearEndMonthDay, date) : null);
     if (!year || !date) return { index, header, periodEnd: null, months, kept: false, reason: 'column period not printed' };
     const periodEnd = `${year}${date}`;
     const reason = columnProblem(periodEnd, months, kind, filing.periodEnded);

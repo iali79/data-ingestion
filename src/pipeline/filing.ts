@@ -90,7 +90,10 @@ export async function extractFilingFinancials(
     const table = buildStatementTable(statement, tables.pages, { periodEnded: filing.periodEnded, yearEndMonthDay });
     if (statement.statementType === 'balance_sheet' && !yearEndMonthDay) yearEndMonthDay = financialYearEnd(table);
     statementTables.push(table);
-    const kind = KIND[statement.statementType];
+  }
+  inheritUnits(statementTables);
+  for (const table of statementTables) {
+    const kind = KIND[table.statementType];
     const { matches, unmatched } = matchRows(kind, table.rows);
     const confirmed = confirmTotals(table);
     values.push(...valuesFromMatches(kind, table, matches, confirmed, drops));
@@ -125,6 +128,20 @@ function pageEvidence(pageNumber: number, analysis: DocumentAnalysis, tables: St
   if (page.kind === 'native') return { pageNumber, method: 'pdftotext', text: page.text };
   const rows = tables.flatMap((table) => table.rows.filter((row) => row.page === pageNumber));
   return { pageNumber, method: 'docling-ocr', text: rows.map((row) => [row.label, row.note ?? '', ...row.cells].filter(Boolean).join(' | ')).join('\n') };
+}
+
+/**
+ * Rule U1: a statement that prints no unit takes the unit the filing's other statements print,
+ * when they all print the same one. Otherwise it stays in rupees as printed, and says so.
+ */
+function inheritUnits(tables: StatementTable[]): void {
+  const printed = new Set(tables.filter((table) => table.unitPrinted).map((table) => table.unitScale));
+  for (const table of tables.filter((item) => !item.unitPrinted)) {
+    if (printed.size === 1) {
+      table.unitScale = [...printed][0]!;
+      table.problems.push(`no unit printed; took x${table.unitScale} from the filing's other statements`);
+    } else if (printed.size > 1) table.problems.push('no unit printed and the other statements disagree; read as rupees');
+  }
 }
 
 /** Statements missing (no income statement or balance sheet), or notes cited but not found. */

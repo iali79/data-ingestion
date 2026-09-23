@@ -25,6 +25,8 @@ export interface LabelRule {
   section?: Section;
   under?: Under;
   not?: RegExp;
+  /** Only below the activity sections (the reconciliation of cash at the foot of a cash flow). */
+  outside?: boolean;
 }
 
 export interface Placement {
@@ -129,7 +131,7 @@ export const LABEL_RULES: Record<Statement, LabelRule[]> = {
     rule('debt_issued', /^(?:proceeds from |long[- ]term )?(?:long[- ]term )?(?:financ(?:e|ing)|loans?|borrowings?) (?:obtained|received|availed|drawn)$|^proceeds from (?:long[- ]term )?(?:financ(?:e|ing)|loans?|borrowings?)$/u, { section: 'financing' }),
     rule('cash_from_financing', /^net cash (?:generated from|\(used in\) \/ generated from|generated from \/ \(used in\)|used in|from|inflow from|outflow from)(?: \/ \(used in\))? financing activities$/u),
     rule('net_change_in_cash', /^net (?:\(?(?:increase|decrease)\)?(?: \/ \(?(?:increase|decrease)\)?)?|change) in cash and cash equivalents$/u),
-    rule('fx_adjustments', /^(?:net )?(?:foreign )?exchange (?:differences?|gain|loss)(?: on cash and cash equivalents)?$|^effect of exchange rate changes/u),
+    rule('fx_adjustments', /^(?:net )?(?:foreign )?exchange (?:differences?|gain|loss)(?: on cash and cash equivalents)?$|^effect of exchange rate changes|^exchange differences on translation of foreign operations$/u, { outside: true }),
     rule('cash_at_beginning', /^cash and cash equivalents at (?:the )?beginning(?: of the(?: (?:year|period))?)?$|^opening cash and cash equivalents$/u),
     rule('cash_at_end', /^cash and cash equivalents at (?:the )?end(?: of the(?: (?:year|period))?)?$|^closing cash and cash equivalents$/u),
   ],
@@ -177,7 +179,11 @@ export function placeRows(rows: StatementRow[]): Map<string, Placement> {
       else if (/non[- ]?current liabilities/u.test(heading)) under = 'non_current_liabilities';
       else if (/current liabilities/u.test(heading)) under = 'current_liabilities';
       else if (/share capital and reserves|^equity$|shareholders' equity|capital and reserves/u.test(heading)) under = 'equity';
-      if (hasClaims && claims.test(heading)) side = 'claims';
+      // Crossing to equity and liabilities closes the assets headings.
+      if (hasClaims && claims.test(heading)) {
+        side = 'claims';
+        if (under === 'current_assets' || under === 'non_current_assets') under = /share capital and reserves|capital and reserves/u.test(heading) ? 'equity' : undefined;
+      }
       if (/operating activities/u.test(heading)) section = 'operating';
       if (/investing activities/u.test(heading)) section = 'investing';
       if (/financing activities/u.test(heading)) section = 'financing';
@@ -214,7 +220,8 @@ export function matchRows(kind: Statement, rows: StatementRow[]): { matches: Mat
         !candidate.not?.test(label) &&
         (!candidate.side || !where.side || candidate.side === where.side) &&
         (!candidate.section || !where.section || candidate.section === where.section) &&
-        (!candidate.under || !where.under || candidate.under === where.under),
+        (!candidate.under || !where.under || candidate.under === where.under) &&
+        (!candidate.outside || !where.section),
     );
     if (!found) {
       unmatched.push(row);
