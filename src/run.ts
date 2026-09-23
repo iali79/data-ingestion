@@ -1,6 +1,7 @@
 import { appendFile } from 'node:fs/promises';
 import { IngestAuthError, IngestClient } from './client.js';
 import { envelope, type ClaimedTask, type ResultPayload, type TaskKind } from './contract.js';
+import { assertToolchain } from './extraction.js';
 import { processTask } from './process.js';
 
 /**
@@ -20,6 +21,9 @@ async function main(): Promise<void> {
   const deadline = Date.now() + (Number.isFinite(budgetMinutes) && budgetMinutes > 0 ? budgetMinutes : 330) * 60_000;
   const kinds = parseKinds(process.env.TASK_KINDS);
   const client = new IngestClient(apiUrl, audience);
+  // Before claiming anything: a runner that can't OCR would lease work and return degraded
+  // results. Checked everywhere except local API testing, where OCR may legitimately be absent.
+  if (process.env.INGEST_SKIP_TOOLCHAIN_CHECK !== '1') await assertToolchain();
 
   const stats = { processed: 0, accepted: 0, failed: 0, leaseLost: 0, rejected: 0 };
   while (Date.now() < deadline) {
