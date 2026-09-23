@@ -15,12 +15,12 @@ on:
       samples:
         description: Sample list
         type: choice
-        options: ['samples/hpl.json', 'samples/scanned.json']
+        options: ['samples/hpl.json', 'samples/scanned.json', 'samples/pilot.json']
         default: 'samples/hpl.json'
       jobs:
         description: Parallel jobs
         type: choice
-        options: ['1', '2', '4', '6', '12']
+        options: ['1', '2', '4', '6', '12', '20']
         default: '6'
 
 permissions: {}
@@ -37,7 +37,7 @@ jobs:
         env:
           JOBS: ${{ inputs.jobs }}
         run: |
-          case "$JOBS" in 1|2|4|6|12) ;; *) JOBS=6 ;; esac
+          case "$JOBS" in 1|2|4|6|12|20) ;; *) JOBS=6 ;; esac
           echo "shards=$(seq -s, 1 "$JOBS" | sed 's/^/[/; s/$/]/')" >> "$GITHUB_OUTPUT"
           echo "count=$JOBS" >> "$GITHUB_OUTPUT"
 

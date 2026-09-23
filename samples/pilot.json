@@ -1,0 +1,488 @@
+[
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=273411",
+    "symbol": "AGTL",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=281749",
+    "symbol": "AGTL",
+    "reportType": "quarterly",
+    "periodEnded": "2026-06-30"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=282400",
+    "symbol": "ATBA",
+    "reportType": "annual",
+    "periodEnded": "2026"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=276328",
+    "symbol": "ATBA",
+    "reportType": "quarterly",
+    "periodEnded": "2026-03-31"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=275083",
+    "symbol": "WAVES",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=282843",
+    "symbol": "WAVES",
+    "reportType": "quarterly",
+    "periodEnded": "2026-06-30"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=282102",
+    "symbol": "ACPL",
+    "reportType": "annual",
+    "periodEnded": "2026"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=276349",
+    "symbol": "ACPL",
+    "reportType": "quarterly",
+    "periodEnded": "2026-03-31"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=266685",
+    "symbol": "ARPL",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=280552",
+    "symbol": "ARPL",
+    "reportType": "quarterly",
+    "periodEnded": "2026-06-30"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=272255",
+    "symbol": "ABL",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=281900",
+    "symbol": "ABL",
+    "reportType": "quarterly",
+    "periodEnded": "2026-06-30"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=282774",
+    "symbol": "INIL",
+    "reportType": "annual",
+    "periodEnded": "2026"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=276023",
+    "symbol": "INIL",
+    "reportType": "quarterly",
+    "periodEnded": "2026-03-31"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=272025",
+    "symbol": "EFERT",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=281833",
+    "symbol": "EFERT",
+    "reportType": "quarterly",
+    "periodEnded": "2026-06-30"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=282181",
+    "symbol": "COLG",
+    "reportType": "annual",
+    "periodEnded": "2026"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=276247",
+    "symbol": "COLG",
+    "reportType": "quarterly",
+    "periodEnded": "2026-03-31"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=260650",
+    "symbol": "BGL",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=275861",
+    "symbol": "BGL",
+    "reportType": "quarterly",
+    "periodEnded": "2026-03-31"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=273662",
+    "symbol": "AGIC",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=281903",
+    "symbol": "AGIC",
+    "reportType": "quarterly",
+    "periodEnded": "2026-06-30"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=282289",
+    "symbol": "AHL",
+    "reportType": "annual",
+    "periodEnded": "2026"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=276786",
+    "symbol": "AHL",
+    "reportType": "quarterly",
+    "periodEnded": "2026-03-31"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=261643",
+    "symbol": "CJPL",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=275343",
+    "symbol": "CJPL",
+    "reportType": "quarterly",
+    "periodEnded": "2026-03-31"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=260748",
+    "symbol": "GRYL",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=275872",
+    "symbol": "GRYL",
+    "reportType": "quarterly",
+    "periodEnded": "2026-03-31"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=276593",
+    "symbol": "BATA",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=281866",
+    "symbol": "BATA",
+    "reportType": "quarterly",
+    "periodEnded": "2026-06-30"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=273306",
+    "symbol": "TRIPF",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=281946",
+    "symbol": "TRIPF",
+    "reportType": "quarterly",
+    "periodEnded": "2026-06-30"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=282703",
+    "symbol": "FHAM",
+    "reportType": "annual",
+    "periodEnded": "2026"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=276157",
+    "symbol": "FHAM",
+    "reportType": "quarterly",
+    "periodEnded": "2026-03-31"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=282238",
+    "symbol": "MARI",
+    "reportType": "annual",
+    "periodEnded": "2026"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=275583",
+    "symbol": "MARI",
+    "reportType": "quarterly",
+    "periodEnded": "2026-03-31"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=273630",
+    "symbol": "HASCOL",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=281919",
+    "symbol": "HASCOL",
+    "reportType": "quarterly",
+    "periodEnded": "2026-06-30"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=273910",
+    "symbol": "PKGS",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=281960",
+    "symbol": "PKGS",
+    "reportType": "quarterly",
+    "periodEnded": "2026-06-30"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=273772",
+    "symbol": "ABOT",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=281852",
+    "symbol": "ABOT",
+    "reportType": "quarterly",
+    "periodEnded": "2026-06-30"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=271968",
+    "symbol": "EPQL",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=281848",
+    "symbol": "EPQL",
+    "reportType": "quarterly",
+    "periodEnded": "2026-06-30"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=282408",
+    "symbol": "NRL",
+    "reportType": "annual",
+    "periodEnded": "2026"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=276407",
+    "symbol": "NRL",
+    "reportType": "quarterly",
+    "periodEnded": "2026-03-31"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=268591",
+    "symbol": "CHAS",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=280526",
+    "symbol": "CHAS",
+    "reportType": "quarterly",
+    "periodEnded": "2026-06-30"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=273455",
+    "symbol": "IBFL",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=281917",
+    "symbol": "IBFL",
+    "reportType": "quarterly",
+    "periodEnded": "2026-06-30"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=273729",
+    "symbol": "PTC",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=281858",
+    "symbol": "PTC",
+    "reportType": "quarterly",
+    "periodEnded": "2026-06-30"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=262077",
+    "symbol": "MEHT",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=276335",
+    "symbol": "MEHT",
+    "reportType": "quarterly",
+    "periodEnded": "2026-03-31"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=263105",
+    "symbol": "SLYT",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=275283",
+    "symbol": "SLYT",
+    "reportType": "quarterly",
+    "periodEnded": "2026-03-31"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=261320",
+    "symbol": "ASHT",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=275646",
+    "symbol": "ASHT",
+    "reportType": "quarterly",
+    "periodEnded": "2026-03-31"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=273671",
+    "symbol": "PAKT",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=281741",
+    "symbol": "PAKT",
+    "reportType": "quarterly",
+    "periodEnded": "2026-06-30"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=273723",
+    "symbol": "PICT",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=281875",
+    "symbol": "PICT",
+    "reportType": "quarterly",
+    "periodEnded": "2026-06-30"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=261639",
+    "symbol": "SSOM",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=276026",
+    "symbol": "SSOM",
+    "reportType": "quarterly",
+    "periodEnded": "2026-03-31"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=260121",
+    "symbol": "BNWM",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=274282",
+    "symbol": "BNWM",
+    "reportType": "quarterly",
+    "periodEnded": "2026-03-31"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=261522",
+    "symbol": "HUSI",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=276521",
+    "symbol": "HUSI",
+    "reportType": "quarterly",
+    "periodEnded": "2026-03-31"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=261741",
+    "symbol": "IMAGE",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=276243",
+    "symbol": "IMAGE",
+    "reportType": "quarterly",
+    "periodEnded": "2026-03-31"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=261252",
+    "symbol": "NAGC",
+    "reportType": "annual",
+    "periodEnded": "2025"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=276234",
+    "symbol": "NAGC",
+    "reportType": "quarterly",
+    "periodEnded": "2026-03-31"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=214696",
+    "symbol": "ATBA",
+    "reportType": "annual",
+    "periodEnded": "2023"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=216151",
+    "symbol": "BNWM",
+    "reportType": "annual",
+    "periodEnded": "2023"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=224807",
+    "symbol": "CHAS",
+    "reportType": "annual",
+    "periodEnded": "2023"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=224750",
+    "symbol": "CHAS",
+    "reportType": "annual",
+    "periodEnded": "2023"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=216525",
+    "symbol": "GRYL",
+    "reportType": "annual",
+    "periodEnded": "2023"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=216862",
+    "symbol": "HUSI",
+    "reportType": "annual",
+    "periodEnded": "2023"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=217466",
+    "symbol": "MEHT",
+    "reportType": "annual",
+    "periodEnded": "2023"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=216642",
+    "symbol": "NAGC",
+    "reportType": "annual",
+    "periodEnded": "2023"
+  },
+  {
+    "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=217527",
+    "symbol": "SSOM",
+    "reportType": "annual",
+    "periodEnded": "2023"
+  }
+]
