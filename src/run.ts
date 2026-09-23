@@ -1,6 +1,7 @@
 import { appendFile } from 'node:fs/promises';
 import { IngestAuthError, IngestClient } from './client.js';
 import { envelope, type ClaimedTask, type ResultPayload, type TaskKind } from './contract.js';
+import { DocumentCorpus } from './corpus.js';
 import { assertToolchain } from './extraction.js';
 import { processTask } from './process.js';
 
@@ -24,6 +25,17 @@ async function main(): Promise<void> {
   // Before claiming anything: a runner that can't OCR would lease work and return degraded
   // results. Checked everywhere except local API testing, where OCR may legitimately be absent.
   if (process.env.INGEST_SKIP_TOOLCHAIN_CHECK !== '1') await assertToolchain();
+  // Reads saved text from this repository's releases (read-only token) and saves fresh text to
+  // CORPUS_OUT_DIR for the separate publish job. Both are optional; without them every document
+  // is downloaded and extracted as before.
+  const corpus = await DocumentCorpus.open({
+    repository: process.env.GITHUB_REPOSITORY,
+    token: process.env.CORPUS_TOKEN,
+    read: process.env.CORPUS_READ !== '0',
+    outDir: process.env.CORPUS_OUT_DIR,
+    log: (message) => console.log(message),
+  });
+  console.log(`corpus: ${corpus.size} documents indexed`);
 
   const stats = { processed: 0, accepted: 0, failed: 0, leaseLost: 0, rejected: 0 };
   while (Date.now() < deadline) {
@@ -31,7 +43,8 @@ async function main(): Promise<void> {
     if (!task) break;
 
     const started = Date.now();
-    const payload = await withTimeout(processTask(task), TASK_TIMEOUT_MS, task);
+    const hitsBefore = corpus.stats.hits;
+    const payload = await withTimeout(processTask(task, corpus), TASK_TIMEOUT_MS, task);
     const outcome = await client.submit(payload);
     stats.processed += 1;
     if (payload.outcome === 'failed') stats.failed += 1;
@@ -40,11 +53,11 @@ async function main(): Promise<void> {
     if (outcome === 'rejected') stats.rejected += 1;
 
     console.log(
-      `task ${task.id} ${task.kind} ${task.context.symbol} -> ${describe(payload)} [${outcome}] ${Math.round((Date.now() - started) / 1000)}s`,
+      `task ${task.id} ${task.kind} ${task.context.symbol} -> ${describe(payload)} [${outcome}]${corpus.stats.hits > hitsBefore ? ' (corpus)' : ''} ${Math.round((Date.now() - started) / 1000)}s`,
     );
   }
 
-  const summary = `processed=${stats.processed} accepted=${stats.accepted} failed=${stats.failed} lease_lost=${stats.leaseLost} rejected=${stats.rejected}`;
+  const summary = `processed=${stats.processed} accepted=${stats.accepted} failed=${stats.failed} lease_lost=${stats.leaseLost} rejected=${stats.rejected} corpus_hits=${corpus.stats.hits} corpus_saved=${corpus.stats.saved}`;
   console.log(summary);
   if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `### Extraction\n\n${summary}\n`);
 }

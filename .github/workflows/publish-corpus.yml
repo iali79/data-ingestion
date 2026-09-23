@@ -1,0 +1,53 @@
+name: Publish corpus
+
+# Called by Extract and Self-test after their jobs finish. Uploads the page text those jobs saved
+# as release assets and updates the corpus index (see README, "Document corpus").
+#
+# This is the only job anywhere in the repository with `contents: write`, and it never holds an
+# identity token for the ingest API: repository write access and API access never share a runner.
+on:
+  workflow_call:
+    inputs:
+      artifact-pattern:
+        description: Artifacts holding saved corpus records
+        type: string
+        required: true
+
+permissions: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    # One publish at a time, so two runs never rewrite the index over each other.
+    concurrency:
+      group: corpus-publish
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      # No install scripts run in a job that can write to the repository.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm run build
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: ${{ inputs.artifact-pattern }}
+          path: corpus-in
+          merge-multiple: true
+
+      - name: Publish
+        env:
+          CORPUS_IN_DIR: corpus-in
+          # Scoped to this one step, not the job.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node dist/publish-corpus.js

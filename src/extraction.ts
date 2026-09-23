@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { availableParallelism, tmpdir } from 'node:os';
 import path from 'node:path';
@@ -21,7 +22,16 @@ export interface ExtractedDocument {
   text: string;
   confidence: number;
   pages: ExtractedPage[];
+  /** The downloaded bytes this text came from; absent when extracted from a buffer directly. */
+  source?: { byteLength: number; sha256: string };
 }
+
+/**
+ * Version of the page text this module produces. Bump it whenever the text for the same document
+ * would change -- OCR resolution, tesseract mode, the sparse-page threshold -- so text saved in the
+ * document corpus under an older version is extracted again instead of reused.
+ */
+export const TEXT_VERSION = 1;
 
 const MAX_DOCUMENT_BYTES = 50 * 1024 * 1024;
 const COMMAND_TIMEOUT_MS = 120_000;
@@ -37,7 +47,9 @@ export async function downloadAndExtractDocument(url: string): Promise<Extracted
     throw new DocumentExtractionError('document_too_large', `document exceeds ${MAX_DOCUMENT_BYTES} bytes`);
   }
   const buffer = await readResponseWithLimit(response, MAX_DOCUMENT_BYTES);
-  return extractDocument(buffer, { url, contentType });
+  const document = await extractDocument(buffer, { url, contentType });
+  document.source = { byteLength: buffer.byteLength, sha256: createHash('sha256').update(buffer).digest('hex') };
+  return document;
 }
 
 export async function extractDocument(

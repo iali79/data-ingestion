@@ -18,6 +18,11 @@ on:
         type: choice
         options: ['financial_statement,corporate_action_notice', 'financial_statement', 'corporate_action_notice']
         default: 'financial_statement,corporate_action_notice'
+      corpus:
+        description: Saved document text
+        type: choice
+        options: ['use', 'ignore']
+        default: 'use'
 
 permissions: {}
 
@@ -77,4 +82,29 @@ jobs:
           INGEST_OIDC_AUDIENCE: ${{ secrets.INGEST_OIDC_AUDIENCE }}
           TASK_KINDS: ${{ inputs.kinds || 'financial_statement,corporate_action_notice' }}
           RUN_BUDGET_MINUTES: '330'
+          # Document corpus: read saved text with this job's read-only token, save fresh text for
+          # the publish job. `ignore` forces every document to be downloaded and extracted again.
+          CORPUS_TOKEN: ${{ github.token }}
+          CORPUS_READ: ${{ inputs.corpus == 'ignore' && '0' || '1' }}
+          CORPUS_OUT_DIR: corpus-out
         run: node dist/run.js
+
+      - name: Keep extracted text for the publish job
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: corpus-${{ matrix.shard }}
+          path: corpus-out/
+          if-no-files-found: ignore
+          retention-days: 3
+          compression-level: 0 # records are already gzipped
+
+  publish-corpus:
+    needs: extract
+    # Publish whatever the shards saved, even if one of them failed.
+    if: ${{ !cancelled() }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/publish-corpus.yml
+    with:
+      artifact-pattern: corpus-*
