@@ -56,6 +56,29 @@ export interface StatementTable {
 const KIND: Record<StatementType, Statement> = { income_statement: 'income', balance_sheet: 'balance', cash_flow: 'cash_flow' };
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 const MONTH_DATE = /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s*(\d{1,2})\b|\b(\d{1,2})\s*(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/iu;
+/**
+ * Header dates written short -- "30-Jun-23", "30 June 25", "30.06.2025" -- as "June 30, 2023", the
+ * form the column rules read. A two-digit year is this century's. Only header and title text is
+ * rewritten; figures never pass through here.
+ */
+const SHORT_MONTH_DATE = /\b(\d{1,2})[-\s./](jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?[-\s./,]*'?((?:19|20)\d{2}|\d{2})(?![\d,])/giu;
+const NUMERIC_DATE = /\b(\d{1,2})[./-](\d{1,2})[./-]((?:19|20)\d{2})\b/gu;
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+export function expandShortDates(text: string): string {
+  return text
+    .replace(SHORT_MONTH_DATE, (whole, day: string, month: string, year: string) => {
+      const index = MONTHS.indexOf(month.toLowerCase().slice(0, 3));
+      if (index < 0 || Number(day) < 1 || Number(day) > 31) return whole;
+      return `${MONTH_NAMES[index]} ${Number(day)}, ${year.length === 2 ? `20${year}` : year}`;
+    })
+    .replace(NUMERIC_DATE, (whole, day: string, month: string, year: string) => {
+      const index = Number(month) - 1;
+      if (index < 0 || index > 11 || Number(day) < 1 || Number(day) > 31) return whole;
+      return `${MONTH_NAMES[index]} ${Number(day)}, ${year}`;
+    });
+}
+
 const PERIOD_PHRASE = /\b(three|3)[-\s]months?\b|\bquarter\b|\b(six|6)[-\s]months?\b|\bhalf[-\s]?year|\b(nine|9)[-\s]months?\b|\b(twelve|12)[-\s]months?\b|\byear\s+ended\b/iu;
 const NOTE_REF = /^\d{1,2}(?:\.\d{1,2}){0,2}(?:\s*[&,]\s*\d{1,2}(?:\.\d{1,2}){0,2})*$/u;
 const FIGURE = /^\(?-?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$|^\(?-?\d+(?:\.\d+)?\)?$/u;
@@ -246,7 +269,7 @@ function titleAbove(statement: SelectedStatement, pages: PageTables[], pieces: A
 
 /** The tables of a page that belong to this statement: all of them, or on a shared page those under its title. */
 function tablesFor(statement: SelectedStatement, page: PageTables): PageTable[] {
-  const usable = page.tables.filter((table) => table.rows >= 3 && table.cols >= 2);
+  const usable = page.tables.filter((table) => table.rows >= 3 && table.cols >= 2).flatMap(splitSideBySide);
   if (!statement.columns || usable.length <= 1) return usable;
   // Side by side: the statement's share of the page width, from the layout-text columns.
   const [start, end] = statement.columns;
@@ -256,6 +279,36 @@ function tablesFor(statement: SelectedStatement, page: PageTables): PageTable[] 
     const centre = (table.bbox[0] + table.bbox[2]) / 2;
     return centre >= left && centre <= right;
   });
+}
+
+/**
+ * A balance sheet printed in two halves side by side (EQUITY & LIABILITIES | Note | 2023 | 2022 ||
+ * ASSETS | Note | 2023 | 2022) that the table model read as one table: two label columns, each
+ * followed by its own figures. Split at the second label column into two tables, the assets half
+ * first, as a balance sheet reads top to bottom. Anything else is returned as it is.
+ */
+export function splitSideBySide(table: PageTable): PageTable[] {
+  const texts = new Array<number>(table.cols).fill(0);
+  const figures = new Array<number>(table.cols).fill(0);
+  for (const cell of table.cells) {
+    const text = clean(cell.text);
+    if (!text || cell.columnHeader) continue;
+    if (parseFigure(text) !== null) figures[cell.col] = (figures[cell.col] ?? 0) + 1;
+    else if (!NOTE_REF.test(text) && /[a-z]{3}/iu.test(text)) texts[cell.col] = (texts[cell.col] ?? 0) + 1;
+  }
+  const labelColumns = texts.map((count, col) => ({ count, col })).filter(({ count }) => count >= Math.max(3, table.rows * 0.25)).map(({ col }) => col);
+  if (labelColumns.length !== 2) return [table];
+  const [first, split] = labelColumns as [number, number];
+  const between = figures.slice(first + 1, split).filter((count) => count >= 3).length;
+  const after = figures.slice(split + 1).filter((count) => count >= 3).length;
+  if (between === 0 || between !== after) return [table];
+  const width = table.bbox[2] - table.bbox[0];
+  const at = table.bbox[0] + (width * split) / table.cols;
+  const left: PageTable = { bbox: [table.bbox[0], table.bbox[1], at, table.bbox[3]], rows: table.rows, cols: split, cells: table.cells.filter((cell) => cell.col < split).map((cell) => ({ ...cell, colSpan: Math.min(cell.colSpan, split - cell.col) })) };
+  const right: PageTable = { bbox: [at, table.bbox[1], table.bbox[2], table.bbox[3]], rows: table.rows, cols: table.cols - split, cells: table.cells.filter((cell) => cell.col >= split).map((cell) => ({ ...cell, col: cell.col - split })) };
+  const words = (half: PageTable) => half.cells.map((cell) => cell.text.toLowerCase()).join(' ');
+  const assetsFirst = /\bassets\b/u.test(words(right)) && !/\bliabilit/u.test(words(right)) && /\bliabilit|\bequity\b/u.test(words(left));
+  return assetsFirst ? [right, left] : [left, right];
 }
 
 export interface Grid {
@@ -288,8 +341,8 @@ export function toGrid(table: PageTable): Grid {
     matrix[cell.row]![cell.col] = cell.text;
     if (cell.text.trim()) filled[cell.row] = true;
     // A cell the table model did not flag can still be header wording ("Note", "'000'-----").
-    if (cell.columnHeader || HEADER_WORDS.test(cell.text.trim())) {
-      headerCells.push({ col: cell.col, colSpan: cell.colSpan, row: cell.row, text: cell.text });
+    if (cell.columnHeader || HEADER_WORDS.test(cell.text.trim()) || HEADER_WORDS.test(expandShortDates(cell.text.trim()))) {
+      headerCells.push({ col: cell.col, colSpan: cell.colSpan, row: cell.row, text: expandShortDates(cell.text) });
       headerCount[cell.row]!++;
     } else if (cell.text.trim()) other[cell.row]!.push({ col: cell.col, text: cell.text.trim() });
   }
@@ -384,6 +437,8 @@ export function describeColumns(
   kind: Statement,
   filing: { periodEnded: string; yearEndMonthDay?: string | null },
 ): StatementColumn[] {
+  headers = headers.map(expandShortDates);
+  title = expandShortDates(title);
   const titleDate = monthDay(title);
   const titlePhrase = PERIOD_PHRASE.exec(title);
   const titleMonths = titlePhrase && /year\s+ended/iu.test(titlePhrase[0]) && !/quarter|months|half/iu.test(title) ? 12 : null;

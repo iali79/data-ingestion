@@ -38,7 +38,7 @@ export const HEADING_LINES = 14;
 export const TITLES: Array<[StatementType, RegExp]> = [
   [
     'income_statement',
-    /^(statement\s+of\s+profit\s+(?:or|and)\s+loss|profit\s+and\s+loss\s+account|income\s+statement|statement\s+of\s+income)\b/iu,
+    /^(statement\s+of\s+profit\s+(?:or|and)\s+loss|profit\s+(?:or|and)\s+loss\s+account|income\s+statement|statement\s+of\s+income)\b/iu,
   ],
   ['balance_sheet', /^(statement\s+of\s+financial\s+position|balance\s+sheet)\b/iu],
   ['cash_flow', /^(statement\s+of\s+cash\s+flows?|cash\s+flow\s+statement)\b/iu],

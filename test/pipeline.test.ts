@@ -3,7 +3,7 @@ import type { DocumentAnalysis, PageAnalysis } from '../src/pipeline/analyse.js'
 import { compare } from '../src/crosscheck.js';
 import { classifyPages } from '../src/pipeline/classify.js';
 import { matchRows, normalizeLabel } from '../src/pipeline/labels.js';
-import { buildStatementTable, describeColumns, parseFigure, type StatementRow, type StatementTable } from '../src/pipeline/normalize.js';
+import { buildStatementTable, describeColumns, expandShortDates, parseFigure, splitSideBySide, type StatementRow, type StatementTable } from '../src/pipeline/normalize.js';
 import type { PageTables, TableCell } from '../src/pipeline/tables.js';
 import { fromSidecar } from '../src/pipeline/tables.js';
 import { applyChecks, confirmTotals, valuesFromMatches, type Drop } from '../src/pipeline/validate.js';
@@ -40,6 +40,16 @@ describe('page classifier', () => {
     expect(result.pages[0]!.selected).toBe(false);
     expect(result.pages[0]!.reasons.join()).toMatch(/summary/u);
     expect(result.pages[1]!.selected).toBe(false);
+  });
+
+  it('reads a wrapped combined title, the older account wording and a title under a running header', () => {
+    const types = (text: string) => classifyPages({ pageCount: 1, ms: 0, pages: [page(1, text)] }).statements.map((item) => item.statementType);
+    const income = figures(['Sales - net', 'Cost of sales', 'Gross profit', 'Profit before taxation', 'Taxation', 'Profit for the year', 'Earnings per share']);
+    expect(types('STATEMENT OF PROFIT OR LOSS AND\nOTHER COMPREHENSIVE INCOME\nFOR THE YEAR ENDED JUNE 30, 2026\n' + income)).toEqual(['income_statement']);
+    expect(types('SALLY TEXTILE MILLS LIMITED Condensed Interim Profit Or Loss Account (Un-audited)\n' + income)).toEqual(['income_statement']);
+    expect(types('ANNUAL REPORT 2025 STATEMENT OF FINANCIAL POSITION\nAS AT DECEMBER 31, 2025\n' + figures(['NON-CURRENT ASSETS', 'Property, plant and equipment', 'Stock-in-trade', 'Trade debts', 'TOTAL ASSETS', 'Share capital', 'CURRENT LIABILITIES', 'TOTAL EQUITY AND LIABILITIES']))).toEqual(['balance_sheet']);
+    // Still not a title: the auditor's sentence, and the combined title followed by prose.
+    expect(types('We have audited the statement of profit or loss and other comprehensive income, and notes\n' + income)).toEqual([]);
   });
 
   it('reads a title after a company name, as OCR prints a letterhead', () => {
@@ -253,6 +263,35 @@ describe('an OCR table whose first rows mix headings and column headers', () => 
     expect(table.columns.map((column) => column.periodEnd)).toEqual(['2018-09-30', '2017-09-30']);
     expect(table.rows[0]!.label).toBe('Property, plant and equipment');
     expect(table.rows[0]!.headings).toEqual(['ASSETS', 'Non-current assets']);
+  });
+});
+
+describe('header dates and side-by-side tables', () => {
+  it('reads short header dates as full dates', () => {
+    expect(expandShortDates('30-Jun-23 Rupees')).toBe('June 30, 2023 Rupees');
+    expect(expandShortDates('30 Sep 2025')).toBe('September 30, 2025');
+    expect(expandShortDates('31.12.2025')).toBe('December 31, 2025');
+    expect(expandShortDates('1,234,567')).toBe('1,234,567');
+    expect(describeColumns(['30-Jun-25', '30-Jun-24'], 'STATEMENT OF FINANCIAL POSITION', 'balance', { periodEnded: '2025' }).map((column) => column.periodEnd)).toEqual(['2025-06-30', '2024-06-30']);
+  });
+
+  it('splits a balance sheet printed in two halves into assets first, then equity and liabilities', () => {
+    const cell = (row: number, col: number, text: string, columnHeader = false): TableCell => ({ row, col, rowSpan: 1, colSpan: 1, text, columnHeader, rowHeader: false, rowSection: false });
+    const rows = ['Share capital|100|90|Property, plant|300|280', 'Reserves|50|40|Stock in trade|60|50', 'Trade payables|210|200|Cash and bank|0|0', 'Total|360|330|Total|360|330'];
+    const table = {
+      bbox: [0, 0, 800, 400] as [number, number, number, number],
+      rows: rows.length + 1,
+      cols: 6,
+      cells: [
+        cell(0, 0, 'EQUITY & LIABILITIES', true), cell(0, 1, '2023', true), cell(0, 2, '2022', true), cell(0, 3, 'ASSETS', true), cell(0, 4, '2023', true), cell(0, 5, '2022', true),
+        ...rows.flatMap((line, index) => line.split('|').map((text, col) => cell(index + 1, col, text))),
+      ],
+    };
+    const [first, second] = splitSideBySide(table);
+    expect(first!.cells.find((item) => item.row === 1 && item.col === 0)?.text).toBe('Property, plant');
+    expect(second!.cells.find((item) => item.row === 1 && item.col === 0)?.text).toBe('Share capital');
+    expect(first!.cols).toBe(3);
+    expect(splitSideBySide({ ...table, cells: table.cells.filter((item) => item.col < 3), cols: 3 })).toHaveLength(1);
   });
 });
 

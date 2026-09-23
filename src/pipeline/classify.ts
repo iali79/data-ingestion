@@ -100,7 +100,8 @@ const NOTE_TOPICS: Array<[NoteTopic, RegExp]> = [
 ];
 
 /** What may follow a statement title on its line. */
-const TITLE_TAIL = /^(?:\s*$|\s*(?:and\s+other\s+comprehensive\s+income|account|\(|for\s+the\b|as\s+(?:at|on)\b|[-–—:]|\d))/iu;
+// "and" alone: the title wraps ("STATEMENT OF PROFIT OR LOSS AND" / "OTHER COMPREHENSIVE INCOME").
+const TITLE_TAIL = /^(?:\s*$|\s*and\s*$|\s*(?:and\s+other\s+comprehensive\s+income|account|\(|for\s+the\b|as\s+(?:at|on)\b|[-–—:]|\d))/iu;
 
 /** A year header ("2025 2024"), as the top of a scanned statement shows it. */
 const YEAR_HEADER = /\b(?:19|20)\d{2}\b[^\n]{0,40}\b(?:19|20)\d{2}\b/u;
@@ -321,8 +322,13 @@ function titlesIn(segments: string[]): Array<{ type: StatementType; basis: Conso
 }
 
 /** The text after each "LIMITED" / "LTD" in a heading line. */
+/** A running header printed above the title on every page: "ANNUAL REPORT 2025", "Half Yearly Report 2026". */
+const RUNNING_HEADER = /\b(?:annual|half[-\s]?yearly|quarterly|interim)\s+report(?:\s+(?:19|20)\d{2}(?:\s*[-–/]\s*\d{2,4})?)?\s*/giu;
+
 function afterCompany(segment: string): string[] {
-  return [...segment.matchAll(COMPANY_SUFFIX)].map((match) => segment.slice(match.index + match[0].length)).filter((rest) => rest.length > 0);
+  return [...segment.matchAll(COMPANY_SUFFIX), ...segment.matchAll(RUNNING_HEADER)]
+    .map((match) => segment.slice(match.index + match[0].length))
+    .filter((rest) => rest.length > 0);
 }
 
 function stripCompany(segment: string): string {
