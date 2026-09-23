@@ -261,8 +261,22 @@ async function runTesseract(file: string): Promise<{ text: string; confidence: n
   return parseTesseractTsv(result.stdout);
 }
 
-async function commandAvailable(command: string): Promise<boolean> {
-  return runCommand(command, ['--version']).then(
+/**
+ * Fails fast if any extraction tool is missing. Without tesseract, scanned pages would silently
+ * yield no text -- a degraded result that still looks like a success -- so a runner that can't
+ * OCR must not take work at all.
+ */
+export async function assertToolchain(): Promise<void> {
+  const missing: string[] = [];
+  // Poppler's tools reject `--version` (exit 1) and only accept `-v`; tesseract takes `--version`.
+  for (const [tool, flag] of [['pdftotext', '-v'], ['pdftoppm', '-v'], ['tesseract', '--version']] as const) {
+    if (!(await commandAvailable(tool, flag))) missing.push(tool);
+  }
+  if (missing.length > 0) throw new Error(`extraction toolchain incomplete: ${missing.join(', ')} not available`);
+}
+
+async function commandAvailable(command: string, versionFlag = '--version'): Promise<boolean> {
+  return runCommand(command, [versionFlag]).then(
     () => true,
     () => false,
   );

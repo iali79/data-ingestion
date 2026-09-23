@@ -25,7 +25,9 @@ npm test
 npm run scan   # secret scan -- also runs in CI
 ```
 
-Local OCR needs `poppler-utils` and `tesseract-ocr` on the `PATH`.
+Local OCR needs `poppler-utils` and `tesseract-ocr` on the `PATH`; the extractor refuses to start
+without them (set `INGEST_SKIP_TOOLCHAIN_CHECK=1` only for local API testing). The manual
+**Self-test** workflow runs the full toolchain on public sample filings without contacting the API.
 
 ## Configuration (workflow)
 
