@@ -34,7 +34,8 @@ for file in $files; do
       hits=$((hits + 1))
     fi
   done
-  if grep -oEI -- "$ipv4" "$file" 2>/dev/null | grep -vEq "$benign_ip"; then
+  # A generated dependency lock holds four-part version numbers ("opencv-python==5.0.0.93").
+  if [ "$file" != python/requirements.lock ] && grep -oEI -- "$ipv4" "$file" 2>/dev/null | grep -vEq "$benign_ip"; then
     echo "secret-scan: $file contains an IP address"
     hits=$((hits + 1))
   fi
