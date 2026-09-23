@@ -12,6 +12,7 @@ import {
   type DocumentKind,
   type ExtractedDocument,
   type ExtractedPage,
+  type OcrPolicy,
 } from './extraction.js';
 import { GithubReleases, type ReleaseAsset } from './github.js';
 
@@ -52,6 +53,8 @@ export interface CorpusRecord {
     confidence: number;
     /** Present only when it differs from the pages joined with form feeds (spreadsheets). */
     text?: string;
+    /** `skipped` when scanned pages were left un-OCR'd; absent on records made before it existed (all OCR'd). */
+    ocr?: 'complete' | 'skipped';
     pages: ExtractedPage[];
   };
 }
@@ -97,6 +100,7 @@ export function toCorpusRecord(
       contentType: document.contentType,
       confidence: document.confidence,
       ...(document.text === joined ? {} : { text: document.text }),
+      ...(document.ocr ? { ocr: document.ocr } : {}),
       pages: document.pages.map(({ pageNumber, method, confidence, text }) => ({ pageNumber, method, confidence, text })),
     },
   };
@@ -119,6 +123,7 @@ export function parseCorpusRecord(value: unknown): CorpusRecord | null {
   if (typeof document.method !== 'string' || typeof document.confidence !== 'number') return null;
   if (document.contentType !== null && typeof document.contentType !== 'string') return null;
   if (document.text !== undefined && typeof document.text !== 'string') return null;
+  if (document.ocr !== undefined && document.ocr !== 'complete' && document.ocr !== 'skipped') return null;
   if (!Array.isArray(document.pages) || !document.pages.every(isPage)) return null;
   return value as unknown as CorpusRecord;
 }
@@ -134,6 +139,7 @@ export function recordToDocument(record: CorpusRecord, sourceUrl: string): Extra
     confidence: record.document.confidence,
     text: record.document.text ?? pages.map((page) => page.text).join('\f'),
     pages,
+    ocr: record.document.ocr ?? 'complete',
     ...(record.source ? { source: record.source } : {}),
   };
 }
@@ -253,14 +259,17 @@ export class DocumentCorpus {
     return Object.keys(this.options.index.entries).length;
   }
 
-  async obtain(sourceUrl: string, meta: { symbol?: string | null } = {}): Promise<ExtractedDocument> {
+  async obtain(sourceUrl: string, meta: { symbol?: string | null } = {}, ocr: OcrPolicy = { mode: 'always' }): Promise<ExtractedDocument> {
     const saved = await this.load(sourceUrl).catch(() => null);
-    if (saved) {
+    // Saved text whose scanned pages were skipped is only good enough if this caller agrees they
+    // are not needed; otherwise extract again, this time with OCR.
+    const usable = saved && (saved.ocr !== 'skipped' || (ocr.mode === 'if-needed' && !ocr.needsOcr(saved)));
+    if (saved && usable) {
       this.stats.hits += 1;
       return saved;
     }
     this.stats.misses += 1;
-    const document = await downloadAndExtractDocument(sourceUrl);
+    const document = await downloadAndExtractDocument(sourceUrl, ocr);
     await this.save(sourceUrl, document, meta.symbol ?? null).catch(() => undefined);
     return document;
   }

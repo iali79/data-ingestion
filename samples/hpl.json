@@ -1,0 +1,74 @@
+[
+ {
+  "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=219876",
+  "symbol": "HPL",
+  "reportType": "quarterly",
+  "periodEnded": "2023-09-30"
+ },
+ {
+  "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=227575",
+  "symbol": "HPL",
+  "reportType": "annual",
+  "periodEnded": "2023"
+ },
+ {
+  "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=231034",
+  "symbol": "HPL",
+  "reportType": "quarterly",
+  "periodEnded": "2024-03-31"
+ },
+ {
+  "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=236018",
+  "symbol": "HPL",
+  "reportType": "quarterly",
+  "periodEnded": "2024-06-30"
+ },
+ {
+  "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=241676",
+  "symbol": "HPL",
+  "reportType": "quarterly",
+  "periodEnded": "2024-09-30"
+ },
+ {
+  "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=249726",
+  "symbol": "HPL",
+  "reportType": "annual",
+  "periodEnded": "2024"
+ },
+ {
+  "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=253213",
+  "symbol": "HPL",
+  "reportType": "quarterly",
+  "periodEnded": "2025-03-31"
+ },
+ {
+  "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=258531",
+  "symbol": "HPL",
+  "reportType": "quarterly",
+  "periodEnded": "2025-06-30"
+ },
+ {
+  "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=264465",
+  "symbol": "HPL",
+  "reportType": "quarterly",
+  "periodEnded": "2025-09-30"
+ },
+ {
+  "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=272758",
+  "symbol": "HPL",
+  "reportType": "annual",
+  "periodEnded": "2025"
+ },
+ {
+  "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=275874",
+  "symbol": "HPL",
+  "reportType": "quarterly",
+  "periodEnded": "2026-03-31"
+ },
+ {
+  "url": "https://financials.psx.com.pk/lib/DownloadPDF.php?id=281899",
+  "symbol": "HPL",
+  "reportType": "quarterly",
+  "periodEnded": "2026-06-30"
+ }
+]

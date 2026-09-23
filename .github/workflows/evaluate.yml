@@ -1,0 +1,56 @@
+name: Evaluate
+
+# Manual only. Runs the statement pipeline (locate pages -> local model -> verification) over a
+# fixed sample of filings and publishes the results as a report and a downloadable artifact.
+#
+# DRY RUN: this workflow has no id-token permission, so it cannot obtain an identity the ingest
+# API accepts, and the evaluation code does not import the API client. Nothing it produces can
+# reach the database.
+on:
+  workflow_dispatch:
+    inputs:
+      samples:
+        description: Sample list
+        type: choice
+        options: ['samples/hpl.json']
+        default: 'samples/hpl.json'
+
+permissions: {}
+
+jobs:
+  evaluate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install OCR tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-eng >/dev/null
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - id: llm
+        uses: ./.github/actions/llm
+      - name: Evaluate
+        env:
+          LLM_URL: ${{ steps.llm.outputs.url }}
+          CORPUS_TOKEN: ${{ github.token }}
+          SAMPLES: ${{ inputs.samples }}
+        run: node dist/evaluate.js "$SAMPLES" samples/hpl-answers.json out
+      - name: Keep results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: evaluation
+          path: |
+            out/
+            ~/llm/server.log
+          retention-days: 14

@@ -74,6 +74,10 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run build
 
+      # Open-weights model on this runner (127.0.0.1 only) that reads the statement pages.
+      - id: llm
+        uses: ./.github/actions/llm
+
       - name: Extract
         env:
           # Stored as secrets purely so their values are masked in these public logs; neither is a
@@ -87,6 +91,7 @@ jobs:
           CORPUS_TOKEN: ${{ github.token }}
           CORPUS_READ: ${{ inputs.corpus == 'ignore' && '0' || '1' }}
           CORPUS_OUT_DIR: corpus-out
+          LLM_URL: ${{ steps.llm.outputs.url }}
         run: node dist/run.js
 
       - name: Keep extracted text for the publish job

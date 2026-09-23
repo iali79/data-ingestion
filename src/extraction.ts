@@ -24,7 +24,20 @@ export interface ExtractedDocument {
   pages: ExtractedPage[];
   /** The downloaded bytes this text came from; absent when extracted from a buffer directly. */
   source?: { byteLength: number; sha256: string };
+  /**
+   * Whether near-empty (scanned) pages went through OCR. `skipped` means they were left as
+   * `sparse` because the text layer already held what was needed -- see `OcrPolicy`.
+   */
+  ocr?: 'complete' | 'skipped';
 }
+
+/**
+ * When to OCR a PDF's near-empty pages.
+ * - `always`: every sparse page, up front (notices, where any page may carry the entitlement).
+ * - `if-needed`: read the text layer first and OCR only when `needsOcr` says the text layer is
+ *   not enough. Readable filings -- the large majority -- then never touch tesseract.
+ */
+export type OcrPolicy = { mode: 'always' } | { mode: 'if-needed'; needsOcr: (document: ExtractedDocument) => boolean };
 
 /**
  * Version of the page text this module produces. Bump it whenever the text for the same document
@@ -38,7 +51,7 @@ const COMMAND_TIMEOUT_MS = 120_000;
 /** A page with less native text than this is treated as a scan and sent to OCR. */
 const SPARSE_PAGE_CHARS = 80;
 
-export async function downloadAndExtractDocument(url: string): Promise<ExtractedDocument> {
+export async function downloadAndExtractDocument(url: string, ocr: OcrPolicy = { mode: 'always' }): Promise<ExtractedDocument> {
   const response = await fetchDocument(url);
   const contentType = response.headers.get('content-type');
   const declaredLength = Number(response.headers.get('content-length'));
@@ -47,20 +60,20 @@ export async function downloadAndExtractDocument(url: string): Promise<Extracted
     throw new DocumentExtractionError('document_too_large', `document exceeds ${MAX_DOCUMENT_BYTES} bytes`);
   }
   const buffer = await readResponseWithLimit(response, MAX_DOCUMENT_BYTES);
-  const document = await extractDocument(buffer, { url, contentType });
+  const document = await extractDocument(buffer, { url, contentType, ocr });
   document.source = { byteLength: buffer.byteLength, sha256: createHash('sha256').update(buffer).digest('hex') };
   return document;
 }
 
 export async function extractDocument(
   buffer: Buffer,
-  options: { url?: string; contentType?: string | null },
+  options: { url?: string; contentType?: string | null; ocr?: OcrPolicy },
 ): Promise<ExtractedDocument> {
   const kind = detectDocumentKind(buffer, options);
   if (kind === 'unsupported') {
     throw new DocumentExtractionError('unsupported_type', 'unsupported document type');
   }
-  if (kind === 'pdf') return extractPdf(buffer, options.contentType ?? null);
+  if (kind === 'pdf') return extractPdf(buffer, options.contentType ?? null, options.ocr ?? { mode: 'always' });
   if (kind === 'image') return extractImage(buffer, extensionForKind(kind, options.url), options.contentType ?? null);
   if (kind === 'spreadsheet') return extractSpreadsheet(buffer, options.contentType ?? null);
 
@@ -111,7 +124,7 @@ export function detectDocumentKind(
   return 'unsupported';
 }
 
-async function extractPdf(buffer: Buffer, contentType: string | null): Promise<ExtractedDocument> {
+async function extractPdf(buffer: Buffer, contentType: string | null, policy: OcrPolicy): Promise<ExtractedDocument> {
   const dir = await mkdtemp(path.join(tmpdir(), 'report-'));
   try {
     const pdf = path.join(dir, 'source.pdf');
@@ -125,7 +138,19 @@ async function extractPdf(buffer: Buffer, contentType: string | null): Promise<E
     });
 
     const sparse = pages.filter((page) => page.text.trim().length < SPARSE_PAGE_CHARS);
-    if (sparse.length > 0 && (await commandAvailable('tesseract'))) {
+    const textOnly = (): ExtractedDocument => ({
+      kind: 'pdf',
+      method: 'pdftotext',
+      contentType,
+      text: pages.map((page) => page.text).join('\f'),
+      confidence: averageConfidence(pages),
+      pages,
+      ocr: sparse.length > 0 ? 'skipped' : 'complete',
+    });
+    if (sparse.length === 0) return textOnly();
+    if (policy.mode === 'if-needed' && !policy.needsOcr(textOnly())) return textOnly();
+
+    if (await commandAvailable('tesseract')) {
       const replacements = await ocrPdfPages(
         pdf,
         dir,
@@ -149,6 +174,7 @@ async function extractPdf(buffer: Buffer, contentType: string | null): Promise<E
       text: pages.map((page) => page.text).join('\f'),
       confidence: averageConfidence(pages),
       pages,
+      ocr: 'complete',
     };
   } finally {
     await rm(dir, { recursive: true, force: true });

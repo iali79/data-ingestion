@@ -11,7 +11,7 @@ import type { ExtractionErrorCode } from './errors.js';
 import type { CorporateActionCandidate, ConsolidationBasis, ParsedStatementLine, StatementType } from './parser.js';
 
 export const SCHEMA_VERSION = 1;
-export const EXTRACTOR_VERSION = 2;
+export const EXTRACTOR_VERSION = 3;
 
 export const LIMITS = {
   lines: 400,
@@ -110,7 +110,7 @@ export function summarizeDocument(document: ExtractedDocument): DocumentSummary 
  * Whether a filing's promoted lines are enough to call it done: at least two income-statement
  * lines, two balance-sheet lines and one cash-flow line.
  */
-export function statementStatus(promoted: ParsedStatementLine[], candidateCount: number, kind: string): StatementStatus {
+export function statementStatus(promoted: ReadonlyArray<{ statementType: StatementType }>, candidateCount: number, kind: string): StatementStatus {
   if (kind === 'unsupported') return 'unsupported';
   const counts = new Map<StatementType, number>();
   for (const line of promoted) counts.set(line.statementType, (counts.get(line.statementType) ?? 0) + 1);

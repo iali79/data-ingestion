@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "start": "node dist/run.js",
-    "scan": "bash scripts/secret-scan.sh"
+    "scan": "bash scripts/secret-scan.sh",
+    "evaluate": "node dist/evaluate.js"
   },
   "dependencies": {
     "@e965/xlsx": "^0.20.3"

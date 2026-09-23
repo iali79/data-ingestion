@@ -54,7 +54,8 @@ describe('corpus records', () => {
     const parsed = parseCorpusRecord(JSON.parse(JSON.stringify(record)));
     expect(parsed).not.toBeNull();
     const document = recordToDocument(parsed!, URL_A);
-    expect(document).toEqual(pdfDocument());
+    // Records made before the OCR flag existed were always fully OCR'd.
+    expect(document).toEqual({ ...pdfDocument(), ocr: 'complete' });
   });
 
   it('keeps text that is not just the pages joined (spreadsheets)', () => {

@@ -321,7 +321,7 @@ function action(
   return { symbol, actionType, eventDate, exDate, details, confidence: 0.82, sourceText };
 }
 
-function dedupeBest(lines: ParsedStatementLine[]): ParsedStatementLine[] {
+export function dedupeBest(lines: ParsedStatementLine[]): ParsedStatementLine[] {
   const best = new Map<string, ParsedStatementLine>();
   for (const line of lines) {
     // Basis is part of the identity: a holding company's consolidated and unconsolidated
@@ -356,7 +356,7 @@ function inferUnitScale(text: string): number {
  * unconsolidated equity for the same period are different numbers and must be derived
  * separately, not averaged or cross-contaminated.
  */
-function addDerivedLines(lines: ParsedStatementLine[]): void {
+export function addDerivedLines(lines: ParsedStatementLine[]): void {
   const groups = new Map<string, Map<string, ParsedStatementLine>>();
   for (const line of lines) {
     const key = `${line.periodLabel}|${line.consolidationBasis}`;

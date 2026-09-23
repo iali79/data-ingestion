@@ -3,6 +3,7 @@ import { IngestAuthError, IngestClient } from './client.js';
 import { envelope, type ClaimedTask, type ResultPayload, type TaskKind } from './contract.js';
 import { DocumentCorpus } from './corpus.js';
 import { assertToolchain } from './extraction.js';
+import { LlmClient } from './llm/client.js';
 import { processTask } from './process.js';
 
 /**
@@ -36,6 +37,10 @@ async function main(): Promise<void> {
     log: (message) => console.log(message),
   });
   console.log(`corpus: ${corpus.size} documents indexed`);
+  // The local model reads statement pages; without it the rule-based parser is used.
+  const llm = LlmClient.fromEnv();
+  if (llm) await llm.waitUntilReady();
+  console.log(`statements: ${llm ? 'local model + verification' : 'rule-based parser'}`);
 
   const stats = { processed: 0, accepted: 0, failed: 0, leaseLost: 0, rejected: 0 };
   while (Date.now() < deadline) {
@@ -44,7 +49,7 @@ async function main(): Promise<void> {
 
     const started = Date.now();
     const hitsBefore = corpus.stats.hits;
-    const payload = await withTimeout(processTask(task, corpus), TASK_TIMEOUT_MS, task);
+    const payload = await withTimeout(processTask(task, corpus, llm), TASK_TIMEOUT_MS, task);
     const outcome = await client.submit(payload);
     stats.processed += 1;
     if (payload.outcome === 'failed') stats.failed += 1;
