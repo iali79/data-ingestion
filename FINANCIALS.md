@@ -5,8 +5,10 @@ What the ingest webhook receives for each filing. Generated from `src/financials
 ```json
 {
   "schemaVersion": 2,
-  "extractorVersion": 3,
-  "filing": { "symbol": "HPL", "reportType": "annual", "periodEnded": "2023", "sourceUrl": "https://financials.psx.com.pk/..." },
+  "taskId": "1234",
+  "leaseToken": "<the lease token from the claim>",
+  "extractorVersion": 4,
+  "outcome": "extracted",
   "document": { "kind": "pdf", "pageCount": 114, "pagesRead": 7, "nativePages": 7, "scannedPages": 0 },
   "periods": [
     {
@@ -14,19 +16,25 @@ What the ingest webhook receives for each filing. Generated from `src/financials
       "months": 12,
       "periodType": "annual",
       "basis": "unconsolidated",
-      "price": { "close": 1200, "date": "2023-12-29", "source": "PSX end-of-day close" },
+      "price": null,
       "income":   { "revenue": { "value": 21368949000, "source": "reported", "page": 46, "text": "REVENUE - NET | 24 | 21,368,949 | 18,559,884", "checks": ["A1 sum to p46.r2", "I1"] }, "gross_profit": { "value": 5526443000, "source": "derived", "formula": "revenue - cost_of_sales" }, "goodwill": null },
       "balance":  { "...": "every balance sheet key" },
       "cashFlow": { "...": "every cash flow key" },
-      "ratios":   { "...": "every ratio key" }
+      "ratios":   { "price_to_earnings": { "value": 0, "source": "runtime", "formula": "price / eps_basic, trailing twelve months (positive earnings only)" }, "...": "every ratio key" }
     }
   ],
-  "pages": [ { "pageNumber": 46, "method": "pdftotext", "text": "..." } ]
+  "pages": [ { "pageNumber": 46, "method": "native", "text": "..." } ],
+  "log": { "timings": { "analyse": 900, "tables": 60000 }, "pagesKept": [], "statements": [], "drops": [] }
 }
 ```
 
+- The filing's identity (symbol, period, document URL) is the task's, held by the server; the
+  payload never states it.
 - **Every key below is present in every period**, as `{ value, source: "reported", page, text, checks }`,
-  `{ value, source: "derived", formula }`, or `null` (not printed and not derivable).
+  `{ value, source: "derived", formula }`, `{ value: 0, source: "runtime", formula }` (market-based:
+  the server calculates it from the day's close), or `null` (not printed and not derivable).
+- `log` is what each stage did (timings, pages kept, statements read, values dropped and why), for
+  the admin panel's history. It holds labels and reasons, never page text.
 - `checks` lists the rules that confirmed a printed figure (RULEBOOK.md): `A1` its table adds up,
   `I1`/`I2`/`B4`/`B5`/`F4`/`F5` an accounting identity holds, `X1`/`X2` it agrees with another
   statement. A figure read by OCR is only ever delivered with at least one check.
@@ -36,8 +44,8 @@ What the ingest webhook receives for each filing. Generated from `src/financials
 - `basis`: `consolidated`, `unconsolidated` or `unknown` (a company with no group statements).
 - Money in PKR, already scaled from "Rupees in thousand". Income-statement costs are positive; a loss is
   negative. Cash-flow figures keep the printed sign (outflows negative).
-- Sub-annual returns and turnovers are annualised, and say so in their formula. Price multiples use the
-  PSX close on or just before the period end; earnings multiples are given for 12-month periods only.
+- Sub-annual returns and turnovers are annualised, and say so in their formula. Earnings-based
+  multiples are runtime items of 12-month periods only.
 
 ## Income statement
 
@@ -191,13 +199,13 @@ What the ingest webhook receives for each filing. Generated from `src/financials
 | `days_sales_outstanding` | Days Sales Outstanding | days | Calculated (formula delivered with the value) |
 | `debt_to_equity` | Debt to Equity (%) | percent | Calculated (formula delivered with the value) |
 | `dividend_payout_ratio` | Dividend Payout Ratio | percent | Calculated (formula delivered with the value) |
-| `dividend_yield` | Dividend Yield (%) | percent | Calculated (formula delivered with the value) |
+| `dividend_yield` | Dividend Yield (%) | percent | Runtime: 0 here, calculated by the server from the day's close (dividends_per_share, trailing twelve months / price x 100) |
 | `dividends_per_share` | Dividends Per Share | PKR per share | Calculated (formula delivered with the value) |
 | `interest_coverage` | Interest Coverage (x) | multiple | Calculated (formula delivered with the value) |
 | `ebitda_margin` | EBITDA Margin (%) | percent | Calculated (formula delivered with the value) |
-| `enterprise_value` | Enterprise Value | PKR | Calculated (formula delivered with the value) |
-| `ev_to_ebitda` | Enterprise Value to EBITDA (x) | multiple | Calculated (formula delivered with the value) |
-| `ev_to_sales` | Enterprise Value to Sales (x) | multiple | Calculated (formula delivered with the value) |
+| `enterprise_value` | Enterprise Value | PKR | Runtime: 0 here, calculated by the server from the day's close (market_capitalization + total_debt + minority_interest + preferred_stock - cash_and_equivalents - short_term_investments) |
+| `ev_to_ebitda` | Enterprise Value to EBITDA (x) | multiple | Runtime: 0 here, calculated by the server from the day's close (enterprise_value / ebitda, trailing twelve months (positive only)) |
+| `ev_to_sales` | Enterprise Value to Sales (x) | multiple | Runtime: 0 here, calculated by the server from the day's close (enterprise_value / revenue, trailing twelve months) |
 | `eps_basic_yoy_growth` | EPS Basic YoY Growth (%) | percent | Calculated (formula delivered with the value) |
 | `float_shares` | Float Shares | shares | Calculated (formula delivered with the value) |
 | `gross_income_margin` | Gross Income Margin (x) | multiple | Calculated (formula delivered with the value) |
@@ -206,12 +214,12 @@ What the ingest webhook receives for each filing. Generated from `src/financials
 | `invested_assets_to_liabilities` | Invested Assets to Liabilities | multiple | Calculated (formula delivered with the value) |
 | `net_income_margin` | Net Income Margin (%) | percent | Calculated (formula delivered with the value) |
 | `operating_margin` | Operating Margin (x) | multiple | Calculated (formula delivered with the value) |
-| `price_to_book` | Price to Book Value | multiple | Calculated (formula delivered with the value) |
-| `price_to_earnings` | Price to Earnings | multiple | Calculated (formula delivered with the value) |
+| `price_to_book` | Price to Book Value | multiple | Runtime: 0 here, calculated by the server from the day's close (price / book_value_per_share) |
+| `price_to_earnings` | Price to Earnings | multiple | Runtime: 0 here, calculated by the server from the day's close (price / eps_basic, trailing twelve months (positive earnings only)) |
 | `dps_yoy_growth` | DPS YoY Growth (%) | percent | Calculated (formula delivered with the value) |
-| `price_to_fcf` | Price to Free Cash Flow | multiple | Calculated (formula delivered with the value) |
-| `price_to_sales` | Price to Sales | multiple | Calculated (formula delivered with the value) |
-| `price_to_tangible_book` | Price to Tangible Book Value | multiple | Calculated (formula delivered with the value) |
+| `price_to_fcf` | Price to Free Cash Flow | multiple | Runtime: 0 here, calculated by the server from the day's close (market_capitalization / free_cash_flow, trailing twelve months (positive only)) |
+| `price_to_sales` | Price to Sales | multiple | Runtime: 0 here, calculated by the server from the day's close (market_capitalization / revenue, trailing twelve months) |
+| `price_to_tangible_book` | Price to Tangible Book Value | multiple | Runtime: 0 here, calculated by the server from the day's close (market_capitalization / (shareholders_equity - intangible_assets - goodwill)) |
 | `quick_ratio` | Quick Ratio (x) | multiple | Calculated (formula delivered with the value) |
 | `return_on_average_assets` | Return on Average Assets (%) | percent | Calculated (formula delivered with the value) |
 | `return_on_average_invested_capital` | Return on Average Invested Capital (%) | percent | Calculated (formula delivered with the value) |
@@ -224,7 +232,7 @@ What the ingest webhook receives for each filing. Generated from `src/financials
 | `debt_to_asset` | Debt to Asset (%) | percent | Calculated (formula delivered with the value) |
 | `debt_to_capital` | Debt to Capital (%) | percent | Calculated (formula delivered with the value) |
 | `net_sales_yoy_growth` | Net Sales YoY Growth (%) | percent | Calculated (formula delivered with the value) |
-| `earning_yield` | Earning Yield (%) | percent | Calculated (formula delivered with the value) |
+| `earning_yield` | Earning Yield (%) | percent | Runtime: 0 here, calculated by the server from the day's close (eps_basic / price x 100, trailing twelve months) |
 | `cash_flow_return_on_invested_capital` | Cash Flow Return on Invested Capital (%) | percent | Calculated (formula delivered with the value) |
 | `graham_value` | Graham Value | PKR per share | Calculated (formula delivered with the value) |
 | `fcf_to_sales` | Free Cash Flow per Sales (%) | percent | Calculated (formula delivered with the value) |
@@ -236,7 +244,7 @@ What the ingest webhook receives for each filing. Generated from `src/financials
 | `net_debt` | Net Debt | PKR | Calculated (formula delivered with the value) |
 | `net_debt_to_ebitda` | Net Debt to EBITDA (x) | multiple | Calculated (formula delivered with the value) |
 | `working_capital` | Working Capital | PKR | Calculated (formula delivered with the value) |
-| `market_capitalization` | Market Capitalization | PKR | Calculated (formula delivered with the value) |
+| `market_capitalization` | Market Capitalization | PKR | Runtime: 0 here, calculated by the server from the day's close (price x common_shares_outstanding) |
 | `tangible_book_value_per_share` | Tangible Book Value Per Share | PKR per share | Calculated (formula delivered with the value) |
 | `return_on_equity` | Return on Equity (%) | percent | Calculated (formula delivered with the value) |
 | `return_on_assets` | Return on Assets (%) | percent | Calculated (formula delivered with the value) |

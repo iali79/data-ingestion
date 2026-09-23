@@ -11,8 +11,8 @@ on:
       workers:
         description: Parallel jobs
         type: choice
-        options: ['1', '2', '4', '8']
-        default: '8'
+        options: ['1', '2', '4', '8', '12', '16', '20']
+        default: '20'
       kinds:
         description: Task kinds
         type: choice
@@ -40,9 +40,11 @@ jobs:
     steps:
       - id: shards
         env:
-          WORKERS: ${{ inputs.workers || '8' }}
+          # Scheduled runs take the repository variable EXTRACT_WORKERS (raised during a backfill,
+          # lowered after); a manual run takes its input.
+          WORKERS: ${{ inputs.workers || vars.EXTRACT_WORKERS || '4' }}
         run: |
-          case "$WORKERS" in 1|2|4|8) ;; *) WORKERS=8 ;; esac
+          case "$WORKERS" in 1|2|4|8|12|16|20) ;; *) WORKERS=4 ;; esac
           echo "shards=$(seq -s, 1 "$WORKERS" | sed 's/^/[/; s/$/]/')" >> "$GITHUB_OUTPUT"
 
   extract:
@@ -74,9 +76,9 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run build
 
-      # Open-weights model on this runner (127.0.0.1 only) that reads the statement pages.
-      - id: llm
-        uses: ./.github/actions/llm
+      # Docling layout + TableFormer models (hash-pinned install, checksummed weights, offline).
+      - id: docling
+        uses: ./.github/actions/docling
 
       - name: Extract
         env:
@@ -91,7 +93,9 @@ jobs:
           CORPUS_TOKEN: ${{ github.token }}
           CORPUS_READ: ${{ inputs.corpus == 'ignore' && '0' || '1' }}
           CORPUS_OUT_DIR: corpus-out
-          LLM_URL: ${{ steps.llm.outputs.url }}
+          DOCSTAGE_PYTHON: ${{ steps.docling.outputs.python }}
+          DOCLING_MODELS: ${{ steps.docling.outputs.models }}
+          DOCSTAGE_PATH: ${{ github.workspace }}/python
         run: node dist/run.js
 
       - name: Keep extracted text for the publish job

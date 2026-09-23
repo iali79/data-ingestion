@@ -4,7 +4,8 @@ Wire format between this extractor and the ingest API. `src/contract.ts` is the 
 the API validates every field again on its side — unknown fields are dropped, enums are closed
 lists, and anything outside the limits below is rejected.
 
-Current versions: `schemaVersion` **1**, `extractorVersion` **2**.
+Current versions: `schemaVersion` **2** for financial statements and **1** for corporate-action
+notices; `extractorVersion` **4**.
 
 ## Authentication
 
@@ -45,69 +46,28 @@ response body is wrapped in `data`:
 
 ## 2. Submit a result — `POST /api/v1/internal/extraction/results`
 
-### 2a. Financial statement
+### 2a. Financial statement (schema version 2)
 
-```json
-{
-  "schemaVersion": 1,
-  "taskId": "48213",
-  "leaseToken": "<same token>",
-  "extractorVersion": 2,
-  "outcome": "extracted",
-  "document": {
-    "kind": "pdf",
-    "contentType": "application/pdf",
-    "method": "pdftotext+tesseract",
-    "pageCount": 104,
-    "confidence": 0.85
-  },
-  "statement": {
-    "status": "complete",
-    "candidateCount": 57,
-    "lines": [
-      {
-        "statementType": "income_statement",
-        "canonicalLineItem": "cost_of_sales",
-        "consolidationBasis": "unconsolidated",
-        "label": "Cost of sales",
-        "periodLabel": "2025",
-        "periodEnd": "2025-12-31",
-        "value": 19631164000,
-        "currency": "PKR",
-        "unitScale": 1000,
-        "confidence": 0.86,
-        "sourcePage": 37,
-        "sourceText": "Cost of sales 25 (19,631,164) (18,320,291)"
-      }
-    ]
-  },
-  "pages": [{ "pageNumber": 37, "method": "pdftotext", "confidence": 0.9, "text": "..." }]
-}
-```
+The full shape, with every field, is in [FINANCIALS.md](FINANCIALS.md): the envelope (`schemaVersion`
+2, `taskId`, `leaseToken`, `extractorVersion`, `outcome`), then `document`, `periods`, `pages` and
+`log`. The item keys of each period's `income`, `balance`, `cashFlow` and `ratios` are the closed
+lists in [financial-items.json](financial-items.json); a key outside them is a `400`.
 
-- `statementType`: `income_statement | balance_sheet | cash_flow`
-- `consolidationBasis`: `consolidated | unconsolidated | unknown`
-- `status`: `complete | partial | low_confidence | failed | unsupported`
-- `value` is already scaled to rupees (`unitScale` records the factor applied). Expense lines
-  are positive magnitudes. EPS is per share with `unitScale: 1`.
-- `periodEnd` is `YYYY-MM-DD` or `null`.
-- `canonicalLineItem` is one of:
-  - **Income statement** — `revenue, cost_of_sales, gross_profit, selling_admin_expenses,
-    distribution_cost, admin_expenses, rd_expenses, depreciation_amortization,
-    other_operating_expenses, other_income, operating_expenses, operating_profit, ebitda,
-    interest_income, finance_cost, net_interest_income, profit_before_tax, taxation,
-    profit_after_tax, preferred_dividends, eps_basic, eps_diluted`
-  - **Balance sheet** — `total_assets, current_assets, property_plant_equipment, stock_in_trade,
-    trade_debts, total_liabilities, current_liabilities, trade_and_other_payables,
-    short_term_borrowings, long_term_debt, total_debt, share_capital, retained_earnings,
-    non_controlling_interest, total_equity, cash_and_bank`
-  - **Cash flow** — `operating_cash_flow, capital_expenditure, investing_cash_flow,
-    dividend_paid, financing_cash_flow`
-  - **Derived ratios** (`income_statement`, `currency: null`, `unitScale: 1`, value in percent)
-    — `gross_margin_pct, operating_margin_pct, net_margin_pct, tax_rate_pct`
-- Derived items (`ebitda`, `operating_expenses`, `selling_admin_expenses`,
-  `net_interest_income`, the ratios, and `total_equity` when not stated) must equal their inputs;
-  the API recomputes and rejects a mismatch.
+Each item is `null`, or one of:
+
+- `{ "value", "source": "reported", "page", "text", "checks" }` — read from the filing;
+- `{ "value", "source": "derived", "formula" }` — calculated from reported figures;
+- `{ "value": 0, "source": "runtime", "formula" }` — market-based, calculated by the server from the
+  day's close. Never stored as a figure.
+
+What the API does again on its side, whatever the payload says:
+
+- The filing's identity (company, period, document) comes from the task, never the payload.
+- Every value must be finite and within ±1e15; a period must end within 18 months of the filing's.
+- The accounting identities (revenue − cost of sales = gross profit, profit before tax − taxation =
+  profit after tax, current + non-current assets = total assets, operating + investing + financing =
+  net change in cash, opening + change = closing cash) and every derived formula are recomputed. A
+  group that fails is dropped, and the drop is logged.
 
 ### 2b. Corporate-action notice
 
@@ -140,7 +100,7 @@ response body is wrapped in `data`:
 
 ```json
 {
-  "schemaVersion": 1, "taskId": "48213", "leaseToken": "<same token>", "extractorVersion": 2,
+  "schemaVersion": 2, "taskId": "48213", "leaseToken": "<same token>", "extractorVersion": 4,
   "outcome": "failed",
   "error": { "code": "download_failed", "message": "download failed with HTTP 503" }
 }
@@ -162,7 +122,8 @@ host_not_allowed`.
 
 | Field | Limit |
 |---|---|
-| `statement.lines` | 400 |
+| `periods` | 40 |
+| `log.drops` | 200 |
 | `pages` | 150 (pages cited by a line are kept first) |
 | `pages[].text` | 20,000 characters |
 | `label` | 160 characters |

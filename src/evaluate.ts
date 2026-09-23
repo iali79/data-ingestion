@@ -2,7 +2,6 @@ import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { PeriodFigures } from './financials/derive.js';
 import { financialsPayload } from './financials/payload.js';
-import { psxPriceLookup } from './financials/price.js';
 import { downloadDocument } from './extraction.js';
 import { extractFilingFinancials, type FilingResult } from './pipeline/filing.js';
 
@@ -56,8 +55,8 @@ async function main(): Promise<void> {
     const workDir = path.join(outDir, `${sample.symbol}-${id}`);
     try {
       const pdf = await obtainPdf(sample.url, id, workDir);
-      const prices = await psxPriceLookup(sample.symbol);
-      const result = await extractFilingFinancials(pdf, { periodEnded: sample.periodEnded }, prices, workDir);
+      // As in production: market-based items are left to the server (source "runtime").
+      const result = await extractFilingFinancials(pdf, { periodEnded: sample.periodEnded }, () => null, workDir);
       const payload = financialsPayload({ ...sample, sourceUrl: sample.url }, result);
       const score = answers[sample.url] ? scorePeriods(result.periods, answers[sample.url]!) : null;
       if (score) {

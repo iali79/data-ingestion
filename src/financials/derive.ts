@@ -18,7 +18,7 @@ import { BALANCE, CASH_FLOW, INCOME, RATIOS, type ItemDefinition } from './defin
  * Signs: income-statement expenses are positive magnitudes and a loss is negative; cash-flow
  * figures keep the filing's sign (an outflow such as capital expenditure is negative).
  */
-export type Source = 'reported' | 'derived';
+export type Source = 'reported' | 'derived' | 'runtime';
 
 export interface Figure {
   value: number;
@@ -26,7 +26,7 @@ export interface Figure {
   /** Reported: the printed line and page it was read from. */
   page?: number | null;
   text?: string;
-  /** Derived: the formula, in terms of other item keys. */
+  /** Derived: the formula, in terms of other item keys. Runtime: the formula the server applies. */
   formula?: string;
   /** Reported: the checks that confirmed the printed figure (table arithmetic, identities). */
   checks?: string[];
@@ -396,9 +396,32 @@ function ratios(c: RatioContext): Figures {
       set('ev_to_ebitda', ebitda !== undefined && ebitda > 0 ? div(ev, ebitda) : undefined, `enterprise_value / ebitda (positive only)${priceNote}`);
       set('ev_to_sales', div(ev, revenue), `enterprise_value / revenue${priceNote}`);
     }
+  } else {
+    // Without a price the market-based items are calculated at runtime, from the day's close, by
+    // the server's valuation job. They are marked, with value 0, so they are never mistaken for
+    // a reported or derived figure.
+    for (const item of RUNTIME_ITEMS) if (flows ? !item.annualOnly || annual : !item.annualOnly) r[item.key] = { value: 0, source: 'runtime', formula: item.formula };
   }
   return r;
 }
+
+/**
+ * Items that depend on the market price. Without a price they are delivered as
+ * `{ value: 0, source: "runtime" }` with the formula the server applies to the day's close.
+ */
+export const RUNTIME_ITEMS: ReadonlyArray<{ key: string; formula: string; annualOnly: boolean }> = [
+  { key: 'market_capitalization', formula: 'price x common_shares_outstanding', annualOnly: false },
+  { key: 'enterprise_value', formula: 'market_capitalization + total_debt + minority_interest + preferred_stock - cash_and_equivalents - short_term_investments', annualOnly: false },
+  { key: 'price_to_book', formula: 'price / book_value_per_share', annualOnly: false },
+  { key: 'price_to_tangible_book', formula: 'market_capitalization / (shareholders_equity - intangible_assets - goodwill)', annualOnly: false },
+  { key: 'price_to_earnings', formula: 'price / eps_basic, trailing twelve months (positive earnings only)', annualOnly: true },
+  { key: 'earning_yield', formula: 'eps_basic / price x 100, trailing twelve months', annualOnly: true },
+  { key: 'price_to_sales', formula: 'market_capitalization / revenue, trailing twelve months', annualOnly: true },
+  { key: 'price_to_fcf', formula: 'market_capitalization / free_cash_flow, trailing twelve months (positive only)', annualOnly: true },
+  { key: 'ev_to_ebitda', formula: 'enterprise_value / ebitda, trailing twelve months (positive only)', annualOnly: true },
+  { key: 'ev_to_sales', formula: 'enterprise_value / revenue, trailing twelve months', annualOnly: true },
+  { key: 'dividend_yield', formula: 'dividends_per_share, trailing twelve months / price x 100', annualOnly: true },
+];
 
 // --------------------------------------------------------------------------------------------
 // Helpers

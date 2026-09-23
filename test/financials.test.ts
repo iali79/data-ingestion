@@ -97,6 +97,20 @@ describe('derivations', () => {
     expect(fy2023.ratios.dividend_yield).toBeNull();
   });
 
+  it('leaves market-based items to the server when no price is given (runtime, value 0)', () => {
+    const noPrice = buildPeriods([...reported, value('income', 'revenue', '2023-09-30', 3, 5_000_000_000)]);
+    const annual = noPrice.find((period) => period.periodEnd === '2023-12-31' && period.months === 12)!;
+    const quarter = noPrice.find((period) => period.periodEnd === '2023-09-30' && period.months === 3)!;
+    expect(annual.ratios.price_to_earnings).toMatchObject({ value: 0, source: 'runtime' });
+    expect(annual.ratios.market_capitalization).toMatchObject({ value: 0, source: 'runtime', formula: 'price x common_shares_outstanding' });
+    expect(annual.ratios.dividend_yield?.source).toBe('runtime');
+    // Earnings multiples need twelve months; a quarter gets only the point-in-time ones.
+    expect(quarter.ratios.price_to_earnings).toBeNull();
+    expect(quarter.ratios.price_to_book?.source).toBe('runtime');
+    // Nothing reported or derived is ever marked runtime.
+    expect(annual.income.revenue?.source).toBe('reported');
+  });
+
   it('shifts dates by months, clamping to month end', () => {
     expect(shiftMonths('2023-12-31', -12)).toBe('2022-12-31');
     expect(shiftMonths('2024-02-29', -12)).toBe('2023-02-28');

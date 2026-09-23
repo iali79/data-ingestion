@@ -3,7 +3,7 @@ import { IngestAuthError, IngestClient } from './client.js';
 import { envelope, type ClaimedTask, type ResultPayload, type TaskKind } from './contract.js';
 import { DocumentCorpus } from './corpus.js';
 import { assertToolchain } from './extraction.js';
-import { LlmClient } from './llm/client.js';
+import { processFinancialsTask, type FinancialsResult } from './financials/task.js';
 import { processTask } from './process.js';
 
 /**
@@ -37,10 +37,9 @@ async function main(): Promise<void> {
     log: (message) => console.log(message),
   });
   console.log(`corpus: ${corpus.size} documents indexed`);
-  // The local model reads statement pages; without it the rule-based parser is used.
-  const llm = LlmClient.fromEnv();
-  if (llm) await llm.waitUntilReady();
-  console.log(`statements: ${llm ? 'local model + verification' : 'rule-based parser'}`);
+  // Statements go through the staged pipeline (Docling tables + rules + checks); notices through
+  // the text parser.
+  if (!process.env.DOCSTAGE_PYTHON) throw new Error('DOCSTAGE_PYTHON is not set: the table stage needs the Docling sidecar');
 
   const stats = { processed: 0, accepted: 0, failed: 0, leaseLost: 0, rejected: 0 };
   while (Date.now() < deadline) {
@@ -49,7 +48,11 @@ async function main(): Promise<void> {
 
     const started = Date.now();
     const hitsBefore = corpus.stats.hits;
-    const payload = await withTimeout(processTask(task, corpus, llm), TASK_TIMEOUT_MS, task);
+    const payload = await withTimeout(
+      task.kind === 'financial_statement' ? processFinancialsTask(task) : processTask(task, corpus),
+      TASK_TIMEOUT_MS,
+      task,
+    );
     const outcome = await client.submit(payload);
     stats.processed += 1;
     if (payload.outcome === 'failed') stats.failed += 1;
@@ -67,15 +70,19 @@ async function main(): Promise<void> {
   if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `### Extraction\n\n${summary}\n`);
 }
 
-function describe(payload: ResultPayload): string {
+function describe(payload: ResultPayload | FinancialsResult): string {
   if (payload.outcome === 'failed') return `failed:${payload.error.code}`;
+  if ('periods' in payload) {
+    const reported = payload.periods.reduce((sum, period) => sum + [period.income, period.balance, period.cashFlow].reduce((n, figures) => n + Object.values(figures).filter((figure) => figure?.source === 'reported').length, 0), 0);
+    return `periods=${payload.periods.length} reported=${reported} pages=${payload.document.pagesRead}/${payload.document.pageCount} dropped=${payload.log.drops.length}`;
+  }
   if ('statement' in payload) return `${payload.statement.status} lines=${payload.statement.lines.length}`;
   return `actions=${payload.corporateActions.length}`;
 }
 
-function withTimeout(work: Promise<ResultPayload>, ms: number, task: ClaimedTask): Promise<ResultPayload> {
+function withTimeout(work: Promise<ResultPayload | FinancialsResult>, ms: number, task: ClaimedTask): Promise<ResultPayload | FinancialsResult> {
   let timer: NodeJS.Timeout | undefined;
-  const timeout = new Promise<ResultPayload>((resolve) => {
+  const timeout = new Promise<ResultPayload | FinancialsResult>((resolve) => {
     timer = setTimeout(
       () =>
         resolve({ ...envelope(task), outcome: 'failed', error: { code: 'extract_failed', message: 'extraction timed out' } }),

@@ -1,4 +1,5 @@
 import type { ClaimedTask, ResultPayload, TaskKind } from './contract.js';
+import type { FinancialsResult } from './financials/task.js';
 import { EXTRACTOR_VERSION } from './contract.js';
 import { backoffMs, sleep } from './http.js';
 import { identityToken, mask } from './oidc.js';
@@ -40,7 +41,7 @@ export class IngestClient {
     return task;
   }
 
-  async submit(payload: ResultPayload): Promise<SubmitOutcome> {
+  async submit(payload: ResultPayload | FinancialsResult): Promise<SubmitOutcome> {
     const response = await this.post('internal/extraction/results', payload);
     await response.body?.cancel();
     if (response.status === 202) return 'accepted';
