@@ -1,0 +1,80 @@
+name: Extract
+
+# Scheduled + manual only. The ingest API accepts identity tokens from exactly this workflow file
+# on `main` for `schedule` / `workflow_dispatch` events, so no other trigger here would work
+# even if one were added.
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      workers:
+        description: Parallel jobs
+        type: choice
+        options: ['1', '2', '4', '8']
+        default: '8'
+      kinds:
+        description: Task kinds
+        type: choice
+        options: ['financial_statement,corporate_action_notice', 'financial_statement', 'corporate_action_notice']
+        default: 'financial_statement,corporate_action_notice'
+
+permissions: {}
+
+concurrency:
+  group: extract
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions: {}
+    outputs:
+      shards: ${{ steps.shards.outputs.shards }}
+    steps:
+      - id: shards
+        env:
+          WORKERS: ${{ inputs.workers || '8' }}
+        run: |
+          case "$WORKERS" in 1|2|4|8) ;; *) WORKERS=8 ;; esac
+          echo "shards=$(seq -s, 1 "$WORKERS" | sed 's/^/[/; s/$/]/')" >> "$GITHUB_OUTPUT"
+
+  extract:
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 345
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install OCR tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-eng >/dev/null
+
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+
+      - name: Extract
+        env:
+          # Stored as secrets purely so their values are masked in these public logs; neither is a
+          # credential. Authentication is the job's OIDC token.
+          INGEST_API_URL: ${{ secrets.INGEST_API_URL }}
+          INGEST_OIDC_AUDIENCE: ${{ secrets.INGEST_OIDC_AUDIENCE }}
+          TASK_KINDS: ${{ inputs.kinds || 'financial_statement,corporate_action_notice' }}
+          RUN_BUDGET_MINUTES: '330'
+        run: node dist/run.js
