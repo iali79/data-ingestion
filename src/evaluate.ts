@@ -22,6 +22,14 @@ interface Sample {
   symbol: string;
   reportType: string;
   periodEnded: string;
+  /** A reviewer's hints for the filing, as production sends them (hints.ts). */
+  hints?: unknown;
+}
+
+/** An answer key exported from the review panel: the samples and their answers in one file. */
+interface ReviewExport {
+  samples: Sample[];
+  answers: AnswerKey;
 }
 
 type AnswerKey = Record<string, Record<string, Record<string, number>>>;
@@ -40,10 +48,13 @@ async function main(): Promise<void> {
   const wanted = only ? new Set(only.split(',')) : null;
   // EVAL_SHARD="2/4": this job takes every 4th filing starting at the 2nd (parallel jobs).
   const [shard, shards] = (process.env.EVAL_SHARD ?? '1/1').split('/').map(Number) as [number, number];
-  const samples = (JSON.parse(await readFile(samplesPath, 'utf8')) as Sample[])
+  // A samples list with its answer key beside it, or one exported file holding both.
+  const loaded = JSON.parse(await readFile(samplesPath, 'utf8')) as Sample[] | ReviewExport;
+  const exported = !Array.isArray(loaded) && Array.isArray(loaded.samples) ? loaded : null;
+  const samples = (exported ? exported.samples : (loaded as Sample[]))
     .filter((sample) => !wanted || wanted.has(idOf(sample)))
     .filter((_, index) => index % shards === shard - 1);
-  const answers = JSON.parse(await readFile(answersPath, 'utf8').catch(() => '{}')) as AnswerKey;
+  const answers = exported ? exported.answers : (JSON.parse(await readFile(answersPath, 'utf8').catch(() => '{}')) as AnswerKey);
   await mkdir(outDir, { recursive: true });
 
   const rows: string[] = [];
@@ -56,7 +67,7 @@ async function main(): Promise<void> {
     try {
       const pdf = await obtainPdf(sample.url, id, workDir);
       // As in production: market-based items are left to the server (source "runtime").
-      const result = await extractFilingFinancials(pdf, { periodEnded: sample.periodEnded }, () => null, workDir);
+      const result = await extractFilingFinancials(pdf, { periodEnded: sample.periodEnded, hints: sample.hints }, () => null, workDir);
       const payload = financialsPayload({ ...sample, sourceUrl: sample.url }, result);
       const score = answers[sample.url] ? scorePeriods(result.periods, answers[sample.url]!) : null;
       if (score) {
@@ -124,12 +135,13 @@ function periodName(period: PeriodFigures): string {
 function scorePeriods(periods: PeriodFigures[], key: Record<string, Record<string, number>>): Score {
   const score: Score = { expected: 0, correct: 0, wrong: [], missing: [] };
   for (const [label, items] of Object.entries(key)) {
-    const [statement, end, monthsText] = label.split('|') as [keyof typeof SECTION, string, string];
+    // `statement|period end|months`, and `|basis` in an exported key (where both bases may be read).
+    const [statement, end, monthsText, basis] = label.split('|') as [keyof typeof SECTION, string, string, string | undefined];
     const months = Number(monthsText);
     for (const [item, expected] of Object.entries(items)) {
       score.expected += 1;
       const found = periods
-        .filter((period) => period.periodEnd === end && (months === 0 ? true : period.months === months))
+        .filter((period) => period.periodEnd === end && (months === 0 ? true : period.months === months) && (!basis || period.basis === basis))
         .map((period) => period[SECTION[statement]][item])
         .find((figure) => figure);
       if (!found) score.missing.push(`${label} ${item} (expected ${format(expected)})`);

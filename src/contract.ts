@@ -11,7 +11,7 @@ import type { ExtractionErrorCode } from './errors.js';
 import type { CorporateActionCandidate, ConsolidationBasis, ParsedStatementLine, StatementType } from './parser.js';
 
 export const SCHEMA_VERSION = 1;
-export const EXTRACTOR_VERSION = 4;
+export const EXTRACTOR_VERSION = 5;
 
 export const LIMITS = {
   lines: 400,
@@ -30,6 +30,8 @@ export interface StatementTaskContext {
   symbol: string;
   reportType: 'annual' | 'quarterly' | 'half_yearly';
   periodEnded: string;
+  /** A reviewer's hints for this filing (unit, statement pages); absent when there are none. Checked by `readHints`. */
+  hints?: unknown;
 }
 
 export interface NoticeTaskContext {

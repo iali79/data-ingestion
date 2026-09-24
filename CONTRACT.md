@@ -43,6 +43,12 @@ response body is wrapped in `data`:
 - `sourceUrl` is always `https` on `financials.psx.com.pk` or `dps.psx.com.pk`; the extractor
   refuses anything else (`host_not_allowed`).
 - The lease lasts 30 minutes. The token authorises submitting a result for this one task only.
+- A `financial_statement` context may also carry `hints`, set by a reviewer for that filing:
+  `{ "unitScale": 1000, "statements": [{ "type": "balance_sheet", "pages": [82], "basis": "unconsolidated" }] }`.
+  `unitScale` is 1, 1000 or 1000000; each `statements` entry (at most 6) names a statement type
+  (`income_statement`, `balance_sheet`, `cash_flow`), 1 to 6 ascending page numbers and optionally
+  a basis. The key is absent when there are no hints. The extractor uses them only when every part
+  is well-formed for the document (RULEBOOK.md H0 to H3).
 
 ## 2. Submit a result — `POST /api/v1/internal/extraction/results`
 

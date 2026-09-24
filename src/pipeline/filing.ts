@@ -4,6 +4,7 @@ import type { Statement } from '../financials/definitions.js';
 import { buildPeriods, type PeriodFigures, type PriceLookup, type ReportedValue } from '../financials/derive.js';
 import { analysePdf, ocrWholePages, type DocumentAnalysis } from './analyse.js';
 import { classifyPages, type Classification } from './classify.js';
+import { applyPageHints, applyUnitHint, readHints } from './hints.js';
 import { matchRows, normalizeLabel } from './labels.js';
 import { buildStatementTable, type StatementTable } from './normalize.js';
 import { readNotes } from './notes.js';
@@ -48,7 +49,7 @@ const KIND = { income_statement: 'income', balance_sheet: 'balance', cash_flow: 
 
 export async function extractFilingFinancials(
   pdf: string,
-  filing: { periodEnded: string },
+  filing: { periodEnded: string; hints?: unknown },
   price: PriceLookup,
   workDir: string,
 ): Promise<FilingResult> {
@@ -64,12 +65,14 @@ export async function extractFilingFinancials(
   };
 
   const analysis = await time('analyse', () => analysePdf(pdf));
-  let classification = classifyPages(analysis);
+  // A reviewer's hints for this filing, if well-formed for this document (rule H0).
+  const hints = readHints(filing.hints, analysis.pageCount);
+  let classification = applyPageHints(classifyPages(analysis), hints);
   // A scanned filing whose title strips did not show every statement, or whose cited notes sit
   // below the strip: read the scanned pages in full (low resolution) and classify again.
   if (analysis.pages.some((page) => page.kind === 'scanned') && needsWholePages(classification)) {
     await time('ocr-pages', () => ocrWholePages(pdf, analysis.pages));
-    classification = classifyPages(analysis);
+    classification = applyPageHints(classifyPages(analysis), hints);
   }
   await writeJson(workDir, 'analysis.json', { pageCount: analysis.pageCount, ms: analysis.ms, pages: analysis.pages.map(({ text, overlay, ...page }) => ({ ...page, head: text.slice(0, 200) })) });
   await writeJson(workDir, 'classification.json', classification);
@@ -88,10 +91,12 @@ export async function extractFilingFinancials(
   let values: ReportedValue[] = [];
   for (const statement of ordered) {
     const table = buildStatementTable(statement, tables.pages, { periodEnded: filing.periodEnded, yearEndMonthDay });
+    if (statement.hinted) table.problems.push(`pages ${statement.pages.join('+')} from an admin hint`);
     if (statement.statementType === 'balance_sheet' && !yearEndMonthDay) yearEndMonthDay = financialYearEnd(table);
     statementTables.push(table);
   }
   inheritUnits(statementTables);
+  applyUnitHint(statementTables, hints);
   for (const table of statementTables) {
     const kind = KIND[table.statementType];
     const { matches, unmatched } = matchRows(kind, table.rows);

@@ -62,7 +62,7 @@ export async function processFinancialsTask(task: StatementTask): Promise<Financ
     const pdf = path.join(workDir, 'source.pdf');
     await mkdir(workDir, { recursive: true });
     await writeFile(pdf, buffer);
-    const result = await extractFilingFinancials(pdf, { periodEnded: task.context.periodEnded }, () => null, path.join(workDir, 'stages'));
+    const result = await extractFilingFinancials(pdf, { periodEnded: task.context.periodEnded, hints: task.context.hints }, () => null, path.join(workDir, 'stages'));
     const payload = financialsPayload(
       { symbol: task.context.symbol, reportType: task.context.reportType, periodEnded: task.context.periodEnded, sourceUrl: task.sourceUrl },
       result,

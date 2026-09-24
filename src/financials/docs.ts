@@ -31,7 +31,7 @@ What the ingest webhook receives for each filing. Generated from \`src/financial
   "schemaVersion": 2,
   "taskId": "1234",
   "leaseToken": "<the lease token from the claim>",
-  "extractorVersion": 4,
+  "extractorVersion": 5,
   "outcome": "extracted",
   "document": { "kind": "pdf", "pageCount": 114, "pagesRead": 7, "nativePages": 7, "scannedPages": 0 },
   "periods": [

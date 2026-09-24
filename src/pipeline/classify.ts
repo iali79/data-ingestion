@@ -51,6 +51,8 @@ export interface SelectedStatement {
   pages: number[];
   /** Character columns of this statement when printed beside another (layout text). */
   columns?: [number, number];
+  /** Pages set by a reviewer's hint (hints.ts), not found by the classifier. */
+  hinted?: boolean;
 }
 
 export interface SelectedNote {
