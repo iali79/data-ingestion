@@ -61,6 +61,8 @@ export interface ReportedValue {
   text: string;
   /** The checks that confirmed it (e.g. "sum:p45.r21", "I1"); absent when none applied. */
   checks?: string[];
+  /** The printed cell it was read from (statement table index, row id, value column); absent for notes. */
+  cell?: { table: number; row: string; column: number };
 }
 
 export type PriceLookup = (date: string) => { close: number; date: string; source: string } | null;

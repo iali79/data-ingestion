@@ -97,11 +97,11 @@ export async function extractFilingFinancials(
   }
   inheritUnits(statementTables);
   applyUnitHint(statementTables, hints);
-  for (const table of statementTables) {
+  for (const [tableIndex, table] of statementTables.entries()) {
     const kind = KIND[table.statementType];
     const { matches, unmatched } = matchRows(kind, table.rows);
     const confirmed = confirmTotals(table);
-    values.push(...valuesFromMatches(kind, table, matches, confirmed, drops));
+    values.push(...valuesFromMatches(kind, table, matches, confirmed, drops, tableIndex));
     summaries.push({
       statementType: table.statementType,
       basis: table.basis,
