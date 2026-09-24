@@ -76,7 +76,7 @@ export function confirmTotals(table: StatementTable): Confirmed {
  * positive amounts (U1-U3), with the checks that confirmed the printed figure. Rows that break the
  * one-row-one-item and one-item-one-figure rules (R2, R5) are dropped here.
  */
-export function valuesFromMatches(kind: Statement, table: StatementTable, matches: Match[], confirmed: Confirmed, drops: Drop[]): ReportedValue[] {
+export function valuesFromMatches(kind: Statement, table: StatementTable, matches: Match[], confirmed: Confirmed, drops: Drop[], tableIndex = 0): ReportedValue[] {
   const byItem = new Map<string, Match[]>();
   for (const match of matches) for (const item of match.items) byItem.set(item, [...(byItem.get(item) ?? []), match]);
   const values: ReportedValue[] = [];
@@ -107,6 +107,7 @@ export function valuesFromMatches(kind: Statement, table: StatementTable, matche
         value,
         page: row.page,
         text: evidence(row),
+        cell: { table: tableIndex, row: row.id, column: column.index },
         ...(by ? { checks: [by] } : {}),
       });
     }
