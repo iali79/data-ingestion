@@ -12,8 +12,8 @@ dropped it. Generated from `src/financials/rulebook.ts` (`npm run docs`); edit t
 | P4 | classify | A note is the one the balance sheet cites by number ("Stock-in-trade 9" -> note 9); without a citation only a whole-numbered heading counts (2.3 is an accounting policy, not a note). | noteReferences and noteHeading in classify.ts. |
 | T1 | tables | A native page is read from its text layer; a scanned page is read from its image by OCR, never from a partial text overlay. | subset.ts renders scanned pages to 300 dpi images; docstage OCRs only those. |
 | V1 | normalize | A figure is taken only from a printed table cell. Nothing is typed, estimated or completed. | parseFigure: an unreadable cell is null, never repaired beyond trimming OCR residue. |
-| V2 | normalize | A dash in a value column means nil (zero). | parseFigure. |
-| V3 | normalize | Figures in brackets are negative. | parseFigure. |
+| V2 | normalize | A dash or "Nil" in a value column means nil (zero). | parseFigure. |
+| V3 | normalize | Figures in brackets are negative, including one whose opening or closing bracket OCR lost; so is a figure after a minus sign (hyphen or U+2212). | parseFigure. |
 | V4 | normalize | The note column holds references, not values. | columnLayout sets the note column aside. |
 | R4 | normalize | One printed line split across two table rows (part of the label and part of the figures on each) is one row. | mergeSplitRows, only when the two rows’ figures do not overlap and together fill every column. |
 | R4b | normalize | Two printed lines fused into one table row (each cell holding both lines’ figures) are two rows, when every cell holds exactly two figures and the second label starts a total ("Net cash ...", "Total ..."). | splitFusedRows; the split rows still pass the arithmetic checks. |
@@ -36,7 +36,7 @@ dropped it. Generated from `src/financials/rulebook.ts` (`npm run docs`); edit t
 | H3 | normalize | A hinted unit applies to every statement of the filing, whatever unit it printed or inherited. | applyUnitHint in hints.ts, after inheritUnits. |
 | U1 | normalize | Figures are scaled by the unit the page states ("Rupees in ’000" is x1,000). A statement that prints no unit takes the unit of the filing’s other statements when they all agree. | unitFromText over the header, title and first rows; inheritUnits in filing.ts. |
 | U2 | validate | Earnings per share is rupees per share and is never scaled. | PER_SHARE. |
-| U3 | validate | Income-statement expenses are delivered as positive amounts; cash flow figures keep their printed sign. | EXPENSES. |
+| U3 | validate | Income-statement expenses are delivered as positive amounts, except a tax credit, which I2 shows to be one and which is delivered negative; cash flow figures keep their printed sign. | EXPENSES; I2 in validate.ts reverses a confirmed tax credit. |
 | U4 | validate | Items that cannot be negative (revenue, total assets, cash, proceeds from selling assets or investments, ...) are dropped when read negative. | NON_NEGATIVE. |
 | A1 | validate | Every printed total must equal the rows above it, column by column (to rounding). Rows in a sum that adds up are confirmed. | confirmTotals; the confirming total is listed in the figure’s checks. |
 | I1 | validate | Revenue - cost of sales = gross profit. | IDENTITIES; on failure all three are dropped. |

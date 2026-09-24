@@ -167,9 +167,16 @@ export function applyChecks(values: ReportedValue[], tables: StatementTable[], d
       if (required.some(([item]) => !group.has(item))) continue;
       let sum = 0;
       for (const [item, sign] of present) sum += sign * group.get(item)!.value;
-      // Taxation may be printed as a credit (a tax income), which reverses its sign.
-      const holds = Math.abs(sum) <= tolerance(group.get(present[0]![0])!, present.length) ||
-        (identity.id === 'I2' && Math.abs(sum + 2 * group.get('taxation')!.value) <= tolerance(group.get('taxation')!, 3));
+      const direct = Math.abs(sum) <= tolerance(group.get(present[0]![0])!, present.length);
+      // Taxation may be a credit (a tax income). U3 delivered it as a positive expense, so the
+      // identity holds only with its sign reversed -- and that reversal is then the figure: a
+      // credit is delivered negative, or the site would show a tax income as a tax charge.
+      const credit = !direct && identity.id === 'I2' && Math.abs(sum + 2 * group.get('taxation')!.value) <= tolerance(group.get('taxation')!, 3);
+      if (credit) {
+        const tax = group.get('taxation')!;
+        tax.value = -tax.value;
+      }
+      const holds = direct || credit;
       const inputs = present.map(([item]) => group.get(item)!);
       if (holds) inputs.forEach((value) => confirm(value, identity.id));
       else {

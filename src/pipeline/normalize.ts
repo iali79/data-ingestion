@@ -495,17 +495,20 @@ function columnProblem(periodEnd: string, months: number | null, kind: Statement
 }
 
 /**
- * A printed figure as a number: brackets are negative, a dash is nil (rules V2, V3). OCR residue
- * around a figure (a stray bar, a trailing comma or full stop) is trimmed, and a semicolon between
- * digit groups is read as the comma it was printed as. Anything else unreadable is null -- a
- * figure is never guessed.
+ * A printed figure as a number: brackets are negative, a dash or "Nil" is nil (rules V2, V3). OCR
+ * residue around a figure (a stray bar, a footnote mark, a trailing comma or full stop) is trimmed,
+ * and a semicolon between digit groups is read as the comma it was printed as. A bracket OCR lost on
+ * either side still makes the figure negative: "(1,234" and "1,234)" are both -1,234, since nothing
+ * positive is printed with one. The typographic minus sign (U+2212) is a minus. Anything else
+ * unreadable is null -- a figure is never guessed.
  */
 export function parseFigure(raw: string): number | null {
-  let text = raw.replace(/\s+/gu, '').replace(/^[|\[\]'‘’"“”_=—§]+(?=[\d(])/u, '').replace(/[|\[\]'‘’"“”_]+$/u, '').replace(/[.,:]+$/u, '');
-  if (DASH.test(text) || text === '') return text === '' ? null : 0;
+  let text = raw.replace(/\s+/gu, '').replace(/−/gu, '-').replace(/^[|\[\]'‘’"“”_=—§]+(?=[\d(])/u, '').replace(/[|\[\]'‘’"“”_*†‡]+$/u, '').replace(/[.,:]+$/u, '');
+  if (DASH.test(text) || /^nil$/iu.test(text)) return 0;
+  if (text === '') return null;
   text = text.replace(/(\d);(\d{3})/gu, '$1,$2');
   if (!FIGURE.test(text)) return null;
-  const negative = text.startsWith('(') || text.startsWith('-');
+  const negative = text.startsWith('(') || text.startsWith('-') || text.endsWith(')');
   const value = Number(text.replace(/[(),-]/gu, ''));
   if (!Number.isFinite(value)) return null;
   return negative ? -value : value;

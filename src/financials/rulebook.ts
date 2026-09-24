@@ -22,8 +22,8 @@ export const RULES: Rule[] = [
   // --- reading tables ---------------------------------------------------------------------------
   { id: 'T1', stage: 'tables', text: 'A native page is read from its text layer; a scanned page is read from its image by OCR, never from a partial text overlay.', enforced: 'subset.ts renders scanned pages to 300 dpi images; docstage OCRs only those.' },
   { id: 'V1', stage: 'normalize', text: 'A figure is taken only from a printed table cell. Nothing is typed, estimated or completed.', enforced: 'parseFigure: an unreadable cell is null, never repaired beyond trimming OCR residue.' },
-  { id: 'V2', stage: 'normalize', text: 'A dash in a value column means nil (zero).', enforced: 'parseFigure.' },
-  { id: 'V3', stage: 'normalize', text: 'Figures in brackets are negative.', enforced: 'parseFigure.' },
+  { id: 'V2', stage: 'normalize', text: 'A dash or "Nil" in a value column means nil (zero).', enforced: 'parseFigure.' },
+  { id: 'V3', stage: 'normalize', text: 'Figures in brackets are negative, including one whose opening or closing bracket OCR lost; so is a figure after a minus sign (hyphen or U+2212).', enforced: 'parseFigure.' },
   { id: 'V4', stage: 'normalize', text: 'The note column holds references, not values.', enforced: 'columnLayout sets the note column aside.' },
   { id: 'R4', stage: 'normalize', text: 'One printed line split across two table rows (part of the label and part of the figures on each) is one row.', enforced: 'mergeSplitRows, only when the two rows’ figures do not overlap and together fill every column.' },
   { id: 'R4b', stage: 'normalize', text: 'Two printed lines fused into one table row (each cell holding both lines\u2019 figures) are two rows, when every cell holds exactly two figures and the second label starts a total ("Net cash ...", "Total ...").', enforced: 'splitFusedRows; the split rows still pass the arithmetic checks.' },
@@ -50,7 +50,7 @@ export const RULES: Rule[] = [
   // --- units and signs ----------------------------------------------------------------------------
   { id: 'U1', stage: 'normalize', text: 'Figures are scaled by the unit the page states ("Rupees in ’000" is x1,000). A statement that prints no unit takes the unit of the filing\u2019s other statements when they all agree.', enforced: 'unitFromText over the header, title and first rows; inheritUnits in filing.ts.' },
   { id: 'U2', stage: 'validate', text: 'Earnings per share is rupees per share and is never scaled.', enforced: 'PER_SHARE.' },
-  { id: 'U3', stage: 'validate', text: 'Income-statement expenses are delivered as positive amounts; cash flow figures keep their printed sign.', enforced: 'EXPENSES.' },
+  { id: 'U3', stage: 'validate', text: 'Income-statement expenses are delivered as positive amounts, except a tax credit, which I2 shows to be one and which is delivered negative; cash flow figures keep their printed sign.', enforced: 'EXPENSES; I2 in validate.ts reverses a confirmed tax credit.' },
   { id: 'U4', stage: 'validate', text: 'Items that cannot be negative (revenue, total assets, cash, proceeds from selling assets or investments, ...) are dropped when read negative.', enforced: 'NON_NEGATIVE.' },
   // --- checks -------------------------------------------------------------------------------------
   { id: 'A1', stage: 'validate', text: 'Every printed total must equal the rows above it, column by column (to rounding). Rows in a sum that adds up are confirmed.', enforced: 'confirmTotals; the confirming total is listed in the figure’s checks.' },

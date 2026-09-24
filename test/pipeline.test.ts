@@ -139,6 +139,35 @@ describe('labels', () => {
     expect(items.c5).toBeUndefined();
   });
 
+  it('knows the wording PSX filings print for tax, levies, EPS, Islamic financing and older lease terms', () => {
+    const cases: Array<[Parameters<typeof matchRows>[0], string, string, string[]]> = [
+      ['income', 'Income tax (expense) / credit', 'taxation', []],
+      ['income', 'Taxation (charge) / credit', 'taxation', []],
+      ['income', 'Levies - minimum and final taxes', 'levies', []],
+      ['income', 'Minimum tax differential', 'levies', []],
+      ['income', 'Basic and diluted earnings per share', 'eps_basic+eps_diluted', []],
+      ['income', 'Direct costs', 'cost_of_sales', []],
+      ['income', 'Profit on bank deposits', 'interest_income', []],
+      ['income', 'Mark-up / return / interest earned', 'interest_income', []],
+      ['income', 'Mark-up / return / interest expensed', 'finance_cost', []],
+      ['balance', 'Paid-up capital', 'share_capital', ['EQUITY AND LIABILITIES', 'SHARE CAPITAL AND RESERVES']],
+      ['balance', 'Unappropriated profit / (accumulated loss)', 'retained_earnings', ['EQUITY AND LIABILITIES', 'SHARE CAPITAL AND RESERVES']],
+      ['balance', 'Diminishing musharaka', 'long_term_debt_excl_leases', ['EQUITY AND LIABILITIES', 'NON-CURRENT LIABILITIES']],
+      ['balance', 'Liabilities against assets subject to finance lease', 'lease_liabilities_non_current', ['EQUITY AND LIABILITIES', 'NON-CURRENT LIABILITIES']],
+      ['balance', 'Current portion of liabilities against assets subject to finance lease', 'current_portion_lease_liabilities', ['EQUITY AND LIABILITIES', 'CURRENT LIABILITIES']],
+      ['balance', 'Short-term finances', 'short_term_borrowings', ['EQUITY AND LIABILITIES', 'CURRENT LIABILITIES']],
+      ['cash_flow', 'Profit received on bank deposits', 'cf_interest_income', ['CASH FLOWS FROM OPERATING ACTIVITIES']],
+      ['cash_flow', 'Sale proceeds of property, plant and equipment', 'sale_of_assets', ['CASH FLOWS FROM INVESTING ACTIVITIES']],
+    ];
+    for (const [kind, label, item, headings] of cases) {
+      const found = matchRows(kind, [row('r', label, ['1'], headings)]).matches[0]?.items.join('+');
+      expect(found, label).toBe(item);
+    }
+    // The subtotal before levies is not profit before tax (which is after levies), nor is a levy line.
+    expect(matchRows('income', [row('r', 'Profit before levies and income tax', ['1'])]).matches).toEqual([]);
+    expect(matchRows('income', [row('r', 'Levy', ['1'])]).matches[0]?.items).toEqual(['levies']);
+  });
+
   it('takes the uncaptioned total under split tax lines as taxation', () => {
     const rows = [
       row('a', 'PROFIT BEFORE TAXATION', ['276,363']),
@@ -327,6 +356,19 @@ describe('columns and figures', () => {
     expect(parseFigure('2,48O,000')).toBeNull();
     expect(parseFigure('')).toBeNull();
   });
+
+  it('keeps a figure negative when OCR lost one bracket, and reads a minus sign, footnote marks and Nil (V2, V3)', () => {
+    expect(parseFigure('(1,234')).toBe(-1_234);
+    expect(parseFigure('1,234)')).toBe(-1_234);
+    expect(parseFigure('\u22121,234')).toBe(-1_234);
+    expect(parseFigure('1,234*')).toBe(1_234);
+    expect(parseFigure('(1,234)†')).toBe(-1_234);
+    expect(parseFigure('Nil')).toBe(0);
+    expect(parseFigure('nil')).toBe(0);
+    // Still never guessed: lakh grouping and a dash before digits (a table rule as often as a minus).
+    expect(parseFigure('12,34,567')).toBeNull();
+    expect(parseFigure('\u20131,234')).toBeNull();
+  });
 });
 
 describe('validation', () => {
@@ -361,6 +403,22 @@ describe('validation', () => {
     const kept = applyChecks(values, [t], drops);
     expect(kept).toEqual([]);
     expect(drops.map((drop) => drop.reason)).toEqual([expect.stringMatching(/^I1/u)]);
+  });
+
+  it('delivers a tax credit negative and a tax charge positive, whichever sign the filing prints (U3, I2)', () => {
+    const run = (cells: [string, string, string]) => {
+      const rows = [row('b', 'Loss before taxation', [cells[0]]), row('t', 'Taxation', [cells[1]]), row('a', 'Loss for the year', [cells[2]])];
+      const t = table(rows);
+      const drops: Drop[] = [];
+      const kept = applyChecks(valuesFromMatches('income', t, matchRows('income', rows).matches, new Map(), drops), [t], drops);
+      return Object.fromEntries(kept.map((value) => [value.key, value.value]));
+    };
+    // Expenses in brackets, so an unbracketed tax line is a credit: -1,000 + 200 = -800.
+    expect(run(['(1,000)', '200', '(800)'])).toEqual({ profit_before_tax: -1_000_000, taxation: -200_000, profit_after_tax: -800_000 });
+    // A charge, printed in brackets: 1,000 - 300 = 700.
+    expect(run(['1,000', '(300)', '700'])).toEqual({ profit_before_tax: 1_000_000, taxation: 300_000, profit_after_tax: 700_000 });
+    // A filing that prints expenses unbracketed and the credit in brackets: -1,000 + 200 = -800.
+    expect(run(['(1,000)', '(200)', '(800)'])).toEqual({ profit_before_tax: -1_000_000, taxation: -200_000, profit_after_tax: -800_000 });
   });
 
   it('delivers an OCR figure only when a check confirms it (V5)', () => {
