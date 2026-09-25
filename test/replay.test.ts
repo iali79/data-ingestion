@@ -201,4 +201,39 @@ describe('drops, answer keys and scoring', () => {
     expect(score.correct).toBe(2);
     expect(score.wrong).toHaveLength(1);
   });
+
+  it('with rebuild, builds the statement tables again from the saved grids and classification (stage 5)', async () => {
+    const filing = path.join(await dir, 'run-3', 'evaluation-1', 'XYZ-2');
+    await mkdir(filing, { recursive: true });
+    const cell = (r: number, c: number, text: string, columnHeader = false) => ({ row: r, col: c, rowSpan: 1, colSpan: 1, text, columnHeader, rowHeader: false, rowSection: false });
+    const grid = [
+      ['', '2025', '2024'],
+      ['Revenue', '1,000', '900'],
+      ['Cost of sales', '(600)', '(500)'],
+      ['Gross profit', '400', '400'],
+    ];
+    const tables = {
+      seconds: 0,
+      pages: [
+        {
+          pageNumber: 1,
+          method: 'docling-pdf',
+          width: 612,
+          height: 792,
+          texts: [{ label: 'section_header', text: "STATEMENT OF PROFIT OR LOSS FOR THE YEAR ENDED DECEMBER 31, 2025 (Rupees in '000)", bbox: [50, 20, 500, 40] }],
+          tables: [{ bbox: [50, 60, 560, 300], rows: 4, cols: 3, cells: grid.flatMap((line, r) => line.map((text, c) => cell(r, c, text, r === 0))).filter((item) => item.text) }],
+        },
+      ],
+    };
+    await writeFile(path.join(filing, 'tables.json'), JSON.stringify(tables));
+    await writeFile(path.join(filing, 'classification.json'), JSON.stringify({ pages: [], statements: [{ statementType: 'income_statement', basis: 'unknown', pages: [1] }], notes: [], selectedPages: [1] }));
+    await writeFile(path.join(filing, 'statements.json'), JSON.stringify({ statements: [], tables: [] }));
+
+    expect(await replayFiling(filing, { rebuild: true, periodEnded: null })).toBeNull();
+    const rebuilt = await replayFiling(filing, { rebuild: true, periodEnded: '2025' });
+    expect(rebuilt?.tables.map((table) => table.rows.map((row) => row.label))).toEqual([['Revenue', 'Cost of sales', 'Gross profit']]);
+    expect(rebuilt?.values.find((value) => value.key === 'revenue' && value.periodEnd === '2025-12-31')?.value).toBe(1_000_000);
+    // Without rebuild the saved (empty) tables are replayed as they are.
+    expect((await replayFiling(filing))?.values).toEqual([]);
+  });
 });
