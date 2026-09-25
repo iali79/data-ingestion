@@ -1,6 +1,8 @@
 import type { Statement } from '../financials/definitions.js';
 import type { ReportedValue } from '../financials/derive.js';
 import { EXPENSES, NON_NEGATIVE, PER_SHARE } from '../financials/conventions.js';
+import { buildConstraints } from './constraints.js';
+import { cellKey, holds } from './constraint-types.js';
 import { normalizeLabel, type Match } from './labels.js';
 import type { StatementRow, StatementTable } from './normalize.js';
 
@@ -120,112 +122,91 @@ function evidence(row: StatementRow): string {
   return [row.label || '(total)', row.note ?? '', ...row.cells].filter((part) => part !== '').join(' | ').slice(0, 300);
 }
 
-interface Identity {
-  id: string;
-  statement: Statement;
-  /** Items and their signs; the identity holds when the signed sum is zero. */
-  terms: Array<[string, 1 | -1]>;
-  text: string;
-}
-
 /**
- * Identities on delivered values (expenses already positive). Each holds when the signed sum of
- * its terms is zero, to within rounding of the printed unit.
- */
-const IDENTITIES: Identity[] = [
-  { id: 'I1', statement: 'income', terms: [['revenue', 1], ['cost_of_sales', -1], ['gross_profit', -1]], text: 'revenue - cost of sales = gross profit' },
-  { id: 'I2', statement: 'income', terms: [['profit_before_tax', 1], ['taxation', -1], ['profit_after_tax', -1]], text: 'profit before tax - taxation = profit after tax' },
-  { id: 'B4', statement: 'balance', terms: [['total_current_assets', 1], ['total_non_current_assets', 1], ['total_assets', -1]], text: 'current + non-current assets = total assets' },
-  { id: 'F4', statement: 'cash_flow', terms: [['cash_from_operations', 1], ['cash_from_investing', 1], ['cash_from_financing', 1], ['net_change_in_cash', -1]], text: 'operating + investing + financing = net change in cash' },
-  { id: 'F5', statement: 'cash_flow', terms: [['cash_at_beginning', 1], ['net_change_in_cash', 1], ['fx_adjustments', 1], ['cash_at_end', -1]], text: 'opening cash + net change (+ exchange differences) = closing cash' },
-];
-/** Terms that may be absent (not printed) without making the identity unusable. */
-const OPTIONAL = new Set(['fx_adjustments']);
-
-/**
- * Applies identities, the balance-sheet equality and the cross-statement tie, then rule V5. Returns
- * the values that survive; every removal is recorded in `drops`.
+ * Applies every relation the filing must satisfy (constraints.ts: table sums, accounting
+ * identities, ties between statements), then rules E1 and V6. Returns the values that survive;
+ * every removal is recorded in `drops`.
+ *
+ * - A relation that holds confirms each figure in it: the figure's `checks` name it. An advisory
+ *   relation (one that is not always an equality, such as X1 with levies between the two figures)
+ *   still confirms when it holds exactly; when it fails it drops nothing.
+ * - A failed identity or tie drops every figure in it: one of them is wrong and the arithmetic
+ *   alone cannot say which (null beats wrong). The repair stage (repair.ts) has already corrected
+ *   whatever the arithmetic could prove, so what fails here is what stayed unproven. A failed
+ *   table sum (A1) drops nothing directly: a total confirmed elsewhere stands, and the figures
+ *   nothing confirms fall to V6.
+ * - Taxation and levies may be credits. U3 delivered them as positive expenses; where the
+ *   identity holds only with the credit sign, that sign is the figure (U3 note in RULEBOOK.md).
+ * - V6: a figure is delivered only when at least one relation confirms it, whether it was read
+ *   from a text layer or by OCR. A figure no arithmetic touches is not verified.
  */
 export function applyChecks(values: ReportedValue[], tables: StatementTable[], drops: Drop[]): ReportedValue[] {
   const removed = new Set<ReportedValue>();
   const confirm = (value: ReportedValue, id: string) => {
-    value.checks = [...new Set([...(value.checks ?? []), id])];
+    value.checks = [...new Set([...(value.checks ?? []), id.slice(0, 80)])];
   };
-  const groups = new Map<string, Map<string, ReportedValue>>();
+  const byCell = new Map<string, ReportedValue>();
+  for (const value of values) if (value.cell) byCell.set(cellKey(value.cell), value);
+
+  for (const constraint of buildConstraints(tables, values)) {
+    const outcome = holds(tables, constraint);
+    if (outcome === null) continue;
+    const inputs = constraint.terms.map((term) => byCell.get(cellKey(term.cell))).filter((value): value is ReportedValue => value !== undefined);
+    if (outcome) {
+      const id = constraint.rule === 'A1' ? constraint.id : constraint.rule;
+      inputs.forEach((value) => confirm(value, id));
+      for (const term of constraint.terms) {
+        const value = byCell.get(cellKey(term.cell));
+        // A charge enters these identities as -|x|; a term that holds as +|x| is a credit.
+        if (value && term.magnitude && term.sign === 1 && CREDITABLE.has(value.key) && /^I[24]$/u.test(constraint.rule)) value.value = -Math.abs(value.value);
+      }
+    } else if (!constraint.advisory && constraint.rule !== 'A1') {
+      inputs.forEach((value) => removed.add(value));
+      drops.push({ item: [...new Set(inputs.map((value) => value.key))].join('/') || constraint.rule, reason: `${constraint.id}: ${constraint.text} does not hold` });
+    }
+  }
+
+  confirmEps(values, removed);
+
+  // V6: nothing unconfirmed is delivered.
   for (const value of values) {
-    const key = `${value.statement}|${value.periodEnd}|${value.months}|${value.basis}`;
-    const group = groups.get(key) ?? new Map<string, ReportedValue>();
-    group.set(value.key, value);
-    groups.set(key, group);
-  }
-  const tolerance = (value: ReportedValue, terms: number) => Math.max(terms * scaleOf(value, tables) * 1.0, Math.abs(value.value) * 1e-6);
-
-  for (const [key, group] of groups) {
-    const [statement] = key.split('|') as [Statement];
-    for (const identity of IDENTITIES.filter((item) => item.statement === statement)) {
-      const present = identity.terms.filter(([item]) => group.has(item));
-      const required = identity.terms.filter(([item]) => !OPTIONAL.has(item));
-      if (required.some(([item]) => !group.has(item))) continue;
-      let sum = 0;
-      for (const [item, sign] of present) sum += sign * group.get(item)!.value;
-      const direct = Math.abs(sum) <= tolerance(group.get(present[0]![0])!, present.length);
-      // Taxation may be a credit (a tax income). U3 delivered it as a positive expense, so the
-      // identity holds only with its sign reversed -- and that reversal is then the figure: a
-      // credit is delivered negative, or the site would show a tax income as a tax charge.
-      const credit = !direct && identity.id === 'I2' && Math.abs(sum + 2 * group.get('taxation')!.value) <= tolerance(group.get('taxation')!, 3);
-      if (credit) {
-        const tax = group.get('taxation')!;
-        tax.value = -tax.value;
-      }
-      const holds = direct || credit;
-      const inputs = present.map(([item]) => group.get(item)!);
-      if (holds) inputs.forEach((value) => confirm(value, identity.id));
-      else {
-        inputs.forEach((value) => removed.add(value));
-        drops.push({ item: present.map(([item]) => item).join('/'), reason: `${identity.id}: ${identity.text} does not hold (${key.split('|').slice(1).join(' ')})` });
-      }
-    }
-  }
-
-  // B5: total assets equal the printed "total equity and liabilities".
-  for (const table of tables.filter((item) => item.statementType === 'balance_sheet')) {
-    const claimsTotal = table.rows.find((row) => /^total (?:equity|capital) and liabilities$|^total liabilities and (?:equity|capital)$/u.test(normalizeLabel(row.label)));
-    if (!claimsTotal) continue;
-    for (const column of table.columns) {
-      const printed = claimsTotal.values[column.index];
-      const assets = values.find((value) => value.key === 'total_assets' && value.basis === table.basis && value.periodEnd === column.periodEnd && value.statement === 'balance');
-      if (printed === null || printed === undefined || !assets) continue;
-      if (Math.abs(printed * table.unitScale - assets.value) <= 2 * table.unitScale) confirm(assets, 'B5');
-      else {
-        removed.add(assets);
-        drops.push({ item: 'total_assets', reason: `B5: total assets != total equity and liabilities (${column.periodEnd})` });
-      }
-    }
-  }
-
-  // X1: the cash flow's profit before tax is the income statement's.
-  for (const value of values.filter((item) => item.key === 'cf_profit_before_tax')) {
-    const income = values.find((item) => item.key === 'profit_before_tax' && item.periodEnd === value.periodEnd && item.months === value.months && item.basis === value.basis);
-    if (!income) continue;
-    if (Math.abs(income.value - value.value) <= 2 * scaleOf(value, tables)) {
-      confirm(value, 'X1');
-      confirm(income, 'X1');
-    } else drops.push({ item: 'cf_profit_before_tax', reason: `X1: differs from the income statement's profit before tax (${value.periodEnd}), kept -- levies can sit between them` });
-  }
-
-  // V5: an OCR-read figure needs a confirmation.
-  const ocrPages = new Set(tables.flatMap((table) => table.rows.filter((row) => row.ocr).map((row) => row.page)));
-  for (const value of values) {
-    if (removed.has(value) || value.page === null || !ocrPages.has(value.page)) continue;
-    if (!value.checks?.length) {
-      removed.add(value);
-      drops.push({ item: value.key, reason: `V5: read by OCR and not confirmed by any check (${value.periodEnd})` });
-    }
+    if (removed.has(value) || value.checks?.length) continue;
+    removed.add(value);
+    drops.push({ item: value.key, reason: `V6: no check confirms it (${value.periodEnd}${value.months ? `/${value.months}` : ''})` });
   }
   return values.filter((value) => !removed.has(value));
 }
 
-function scaleOf(value: ReportedValue, tables: StatementTable[]): number {
-  if (PER_SHARE.has(value.key)) return 0.01;
-  return tables.find((table) => table.basis === value.basis && table.rows.some((row) => row.page === value.page))?.unitScale ?? 1;
+/** Items U3 delivers as positive expenses that can be credits. */
+const CREDITABLE = new Set(['taxation', 'levies']);
+
+/**
+ * E1: earnings per share are profit attributable to owners over the weighted number of shares, so
+ * every column of the same statement implies the same share count (comparatives are restated for
+ * bonus and right issues). Each EPS printed to two decimals gives an interval of share counts;
+ * when two or more columns' intervals overlap, the EPS figures and the profits agree with each
+ * other, and the EPS figures are confirmed. EPS below 0.10 in size is too coarse to prove
+ * anything (its rounding alone is 5%) and is not used.
+ */
+function confirmEps(values: ReportedValue[], removed: Set<ReportedValue>): void {
+  const live = values.filter((value) => !removed.has(value) && value.statement === 'income');
+  for (const key of ['eps_basic', 'eps_diluted']) {
+    const groups = new Map<string, Array<[number, number, ReportedValue]>>();
+    for (const eps of live.filter((value) => value.key === key && Math.abs(value.value) >= 0.1)) {
+      const same = (item: string) => live.find((value) => value.key === item && value.periodEnd === eps.periodEnd && value.months === eps.months && value.basis === eps.basis && value.checks?.length);
+      const profit = same('net_income_to_owners') ?? same('profit_after_tax');
+      if (!profit || profit.value === 0 || Math.sign(profit.value) !== Math.sign(eps.value)) continue;
+      const low = Math.abs(profit.value) / (Math.abs(eps.value) + 0.005);
+      const high = Math.abs(profit.value) / (Math.abs(eps.value) - 0.005);
+      const group = `${eps.basis}|${eps.cell?.table ?? ''}`;
+      groups.set(group, [...(groups.get(group) ?? []), [low, high, eps]]);
+    }
+    for (const intervals of groups.values()) {
+      if (intervals.length < 2) continue;
+      const low = Math.max(...intervals.map(([l]) => l));
+      const high = Math.min(...intervals.map(([, h]) => h));
+      if (low > high) continue;
+      for (const [, , eps] of intervals) eps.checks = [...new Set([...(eps.checks ?? []), 'E1 same share count in every column'])];
+    }
+  }
 }
