@@ -321,6 +321,18 @@ describe('header dates and side-by-side tables', () => {
     expect(second!.cells.find((item) => item.row === 1 && item.col === 0)?.text).toBe('Share capital');
     expect(first!.cols).toBe(3);
     expect(splitSideBySide({ ...table, cells: table.cells.filter((item) => item.col < 3), cols: 3 })).toHaveLength(1);
+
+    // The two halves come from one page: their rows keep distinct ids, or a cell could not be named
+    // and one half's arithmetic would confirm the other's rows.
+    const statement = buildStatementTable(
+      { statementType: 'balance_sheet', basis: 'unconsolidated', pages: [5] },
+      [{ pageNumber: 5, method: 'docling-pdf', width: 800, height: 600, texts: [{ label: 'section_header', text: 'Statement of Financial Position as at June 30, 2023', bbox: [0, 0, 400, 20] }], tables: [table] }],
+      { periodEnded: '2023-06-30' },
+    );
+    const idsOf = statement.rows.map((item) => item.id);
+    expect(idsOf.length).toBe(8);
+    expect(new Set(idsOf).size).toBe(idsOf.length);
+    expect(idsOf.slice(4)).toEqual(['p5.t1.r1', 'p5.t1.r2', 'p5.t1.r3', 'p5.t1.r4']);
   });
 });
 
