@@ -37,3 +37,17 @@ export function unitFromText(text: string): number | null {
   if (/\b(?:rupees|rs\.?|pkr)\s*(?:in\s+)?(?:thousands?|['‘’`]\s*000)\b|rupees\s+in\s+['‘’`]?\s*000|\bin\s+thousands?\b/iu.test(text)) return 1_000;
   return null;
 }
+
+/** A column header that names only the currency, around a year or an audit note: "2023 (Rupees)", "Rupees", "Rs. (Restated)". */
+const BARE_CURRENCY_HEADER = /^(?:(?:19|20)\d{2}|\(?(?:un-?)?audited\)?|\(?restated\)?|\s)*\(?\s*(?:rupees|rs\.?|pkr)\s*\)?(?:(?:19|20)\d{2}|\(?(?:un-?)?audited\)?|\(?restated\)?|\s)*$/iu;
+
+/**
+ * Rule U1, plain rupees: value columns headed only by the currency ("2023 (Rupees)") print the
+ * unit as rupees, x1. Without this a statement in plain rupees counted as printing no unit and
+ * inherited the filing's other tables' unit -- OCTOPUS's 2023 annual report took "Rupees in
+ * million" from its six-year analysis and went out a million times too large. Consulted only
+ * after unitFromText and the split "Rupees | in '000" header, so a stated scale always wins.
+ */
+export function unitFromHeaders(headers: string[]): 1 | null {
+  return headers.some((header) => BARE_CURRENCY_HEADER.test(header.trim())) ? 1 : null;
+}

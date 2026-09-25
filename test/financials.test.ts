@@ -137,4 +137,18 @@ describe('conventions', () => {
     expect(monthsSince('-06-30', '-12-31')).toBe(6);
     expect(monthsSince('-12-31', '-12-31')).toBe(12);
   });
+
+  it('reads a currency-only column header as plain rupees, and nothing else as a unit (rule U1)', async () => {
+    const { unitFromHeaders } = await import('../src/financials/conventions.js');
+    // OCTOPUS 2023 annual: the statements' columns are headed "2023 (Rupees)".
+    expect(unitFromHeaders(['2023 (Rupees)', '2022 (Rupees)'])).toBe(1);
+    expect(unitFromHeaders(['Rupees'])).toBe(1);
+    expect(unitFromHeaders(['2022 Rs. (Restated)'])).toBe(1);
+    expect(unitFromHeaders(['(Un-audited) Rupees'])).toBe(1);
+    // A year alone, a scale, or prose is not a bare-rupees header.
+    expect(unitFromHeaders(['2023', '2022'])).toBeNull();
+    expect(unitFromHeaders(["Rupees in '000"])).toBeNull();
+    expect(unitFromHeaders(['Rupees in million'])).toBeNull();
+    expect(unitFromHeaders(['Shares of Rs. 10 each'])).toBeNull();
+  });
 });
