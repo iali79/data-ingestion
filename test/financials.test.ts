@@ -138,6 +138,19 @@ describe('conventions', () => {
     expect(monthsSince('-12-31', '-12-31')).toBe(12);
   });
 
+  it('reads the thousands printed without an apostrophe, or split across a dashed header (rule U1)', async () => {
+    const { unitFromText } = await import('../src/financials/conventions.js');
+    // TBL interim statements.
+    expect(unitFromText("Audited | Note | (Rs in 000's) | PROPERTY AND ASSETS")).toBe(1_000);
+    expect(unitFromText('(Rupees in 000)')).toBe(1_000);
+    // PNSC: the header's two halves with a column date between them.
+    expect(unitFromText("-------------(Rupees\nQuarter ended September 30, 2023 in '000)-------------")).toBe(1_000);
+    // Amounts in prose are not a unit.
+    expect(unitFromText('a loan write-off of Rs. 500,000/- and above')).toBeNull();
+    expect(unitFromText('Ordinary shares of Rs. 10 each')).toBeNull();
+    expect(unitFromText('(Rupees) 2023')).toBeNull();
+  });
+
   it('reads a currency-only column header as plain rupees, and nothing else as a unit (rule U1)', async () => {
     const { unitFromHeaders } = await import('../src/financials/conventions.js');
     // OCTOPUS 2023 annual: the statements' columns are headed "2023 (Rupees)".

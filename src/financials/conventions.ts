@@ -35,6 +35,11 @@ export function monthsSince(yearEnd: string, periodEnd: string): number {
 export function unitFromText(text: string): number | null {
   if (/\b(?:rupees|rs\.?|pkr)\s*(?:in\s+)?(?:millions?|mn)\b|\bin\s+millions?\b/iu.test(text)) return 1_000_000;
   if (/\b(?:rupees|rs\.?|pkr)\s*(?:in\s+)?(?:thousands?|['‘’`]\s*000)\b|rupees\s+in\s+['‘’`]?\s*000|\bin\s+thousands?\b/iu.test(text)) return 1_000;
+  // "(Rs in 000's)": the thousands with no opening apostrophe (TBL's interim statements).
+  if (/\b(?:rupees|rs\.?|pkr)\s*in\s+000(?:['‘’`]\s*s)?(?![\d,])/iu.test(text)) return 1_000;
+  // A dashed header broken across the page's text pieces: "--(Rupees" ... "in '000)--", with a
+  // column date between them (PNSC, BAFL). Bounded to one parenthesis.
+  if (/\(\s*(?:rupees|rs\.?|pkr)\b[^()]{0,200}?\bin\s*['‘’`]\s*000['‘’`]?\s*\)/iu.test(text)) return 1_000;
   return null;
 }
 
