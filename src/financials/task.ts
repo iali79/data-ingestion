@@ -35,6 +35,8 @@ export interface FinancialsLog {
   repairs: Array<{ cell: string; from: number | null; to: number; how: string; proof: string[] }>;
   /** Relations that still fail after repair, and why no correction was proven. */
   unresolved: Array<{ constraint: string; reason: string }>;
+  /** Plausibility warnings (S1-S9) on the delivered figures; never a reason to drop. */
+  plausibility: string[];
 }
 
 interface Envelope {
@@ -114,5 +116,6 @@ export function financialsLog(result: FilingResult): FinancialsLog {
       proof: fix.proof.slice(0, 8).map((id) => id.slice(0, 80)),
     })),
     unresolved: result.unresolved.slice(0, 50).map((item) => ({ constraint: item.constraint.slice(0, 120), reason: item.reason.slice(0, 200) })),
+    plausibility: result.plausibility.slice(0, 50).map((problem) => problem.slice(0, 200)),
   };
 }

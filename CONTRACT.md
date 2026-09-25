@@ -5,7 +5,7 @@ the API validates every field again on its side — unknown fields are dropped, 
 lists, and anything outside the limits below is rejected.
 
 Current versions: `schemaVersion` **2** for financial statements and **1** for corporate-action
-notices; `extractorVersion` **6**.
+notices; `extractorVersion` **7**.
 
 ## Authentication
 
