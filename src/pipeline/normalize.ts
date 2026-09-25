@@ -1,6 +1,6 @@
 import type { ConsolidationBasis, StatementType } from '../parser.js';
 import type { Statement } from '../financials/definitions.js';
-import { monthsSince, unitFromText } from '../financials/conventions.js';
+import { monthsSince, unitFromHeaders, unitFromText } from '../financials/conventions.js';
 import type { SelectedStatement } from './classify.js';
 import type { PageTable, PageTables } from './tables.js';
 import { rebuildFromText } from './fused.js';
@@ -218,7 +218,8 @@ export function buildStatementTable(
   const cellTexts = grids.flatMap(({ grid }) => Array.from({ length: Math.min(grid.rows, 4) }, (_, r) => Array.from({ length: grid.cols }, (_, c) => grid.cell(r, c))).flat());
   const unitText = [...headerTexts, title, ...pageTexts.map((text) => text.text), ...cellTexts].join('\n');
   // "Rupees (Un-audited) | in '000" -- the unit split across two header cells.
-  const unitScale = unitFromText(unitText) ?? (/\brupees\b[^\n]{0,40}?\n?[^\n]{0,20}?['‘’`]\s*000\b/iu.test(unitText) ? 1_000 : null);
+  const unitScale = unitFromText(unitText) ?? (/\brupees\b[^\n]{0,40}?\n?[^\n]{0,20}?['‘’`]\s*000\b/iu.test(unitText) ? 1_000 : null)
+    ?? unitFromHeaders(headerTexts);
   const columns = describeColumns(headerTexts, title, kind, filing);
   return { ...base, title, unitScale: unitScale ?? 1, unitPrinted: unitScale !== null, columns, rows };
 }
