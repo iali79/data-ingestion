@@ -1,4 +1,4 @@
-import { rm } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { runCommand } from '../extraction.js';
 import type { DocumentAnalysis } from './analyse.js';
@@ -86,6 +86,9 @@ export async function rereadCells(
   const pages = [...perPage.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, limit).map(([page]) => page);
   const ocrTexts = new Map<number, OcrText | null>();
   let toolsMissing = false;
+  // The page images are written here; pdftoppm cannot create the directory itself, and a render
+  // that fails is skipped silently, so a missing directory would quietly disable every OCR reread.
+  if (pages.length > 0) await mkdir(workDir, { recursive: true });
   for (const page of pages.sort((a, b) => a - b)) {
     if (toolsMissing) break;
     const result = await ocrPage(pdf, page, workDir);
