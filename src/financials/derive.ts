@@ -167,7 +167,10 @@ function deriveIncome(reported: Figures, cashFlow: Figures): Figures {
   fill(f, 'ebitda', ['operating_profit', 'depreciation_amortization'], (o, d) => o + d, 'operating_profit + depreciation_amortization');
   fill(f, 'net_interest_expense', ['finance_cost', 'interest_income'], (fc, ii) => fc - ii, 'finance_cost - interest_income');
   fill(f, 'net_interest_income', ['interest_income', 'finance_cost'], (ii, fc) => ii - fc, 'interest_income - finance_cost');
-  fill(f, 'profit_after_tax', ['profit_before_tax', 'taxation'], (p, t) => p - t, 'profit_before_tax - taxation');
+  // Levies sit above profit before tax in the PSX layout since 2023, and below it in some older
+  // statements: with levies printed, which one this filing uses is not known here, so profit after
+  // tax is not derived from the other two (I4 in constraints.ts checks the printed figures).
+  if (!f.levies) fill(f, 'profit_after_tax', ['profit_before_tax', 'taxation'], (p, t) => p - t, 'profit_before_tax - taxation');
   fill(f, 'net_income_to_owners', ['profit_after_tax', 'net_income_to_minority'], (p, m) => p - m, 'profit_after_tax - net_income_to_minority');
   if (!f.eps_diluted && f.eps_basic?.source === 'reported' && /diluted/iu.test(f.eps_basic.text ?? '')) {
     f.eps_diluted = { ...f.eps_basic };

@@ -7,21 +7,21 @@ import { normalizeLabel, type Match } from './labels.js';
 import type { StatementRow, StatementTable } from './normalize.js';
 
 /**
- * Stage 6 -- financial validation. Three independent kinds of check:
+ * Stage 6 -- financial validation. Three independent kinds of check, all expressed as relations
+ * over printed cells in constraints.ts:
  *
  * 1. Table arithmetic (rule A1). A statement is built from running totals: gross profit is sales
  *    less cost of sales, an uncaptioned line totals the rows above it, "Net cash from operating
  *    activities" sums its section. For every total row and every column, the rows directly above it
  *    are added up; when they equal the printed total exactly (to rounding), the total and each row
- *    in the sum are confirmed. This checks the printed figures themselves, before any labelling.
- * 2. Accounting identities per period (I1-I3, B4-B5, F4-F5): revenue - cost of sales = gross
- *    profit, profit before tax - tax = profit after tax, total assets = total equity and
- *    liabilities, the cash flow sections add up to the change in cash, and opening cash plus the
- *    change is closing cash. Values in a failed identity are dropped -- null beats wrong.
- * 3. Cross-statement ties (X1): the cash flow's profit before tax equals the income statement's.
+ *    in the sum are confirmed, and the same run is checked in the other columns.
+ * 2. Accounting identities per period (I1-I5, B1-B5, F4-F5, E1). Values in a failed identity are
+ *    dropped: null beats wrong.
+ * 3. Ties between statements (X1, X3-X5).
  *
- * Figures read by OCR must also be confirmed by at least one check (rule V5): a misread digit
- * breaks the arithmetic, so an unconfirmed OCR figure is never delivered.
+ * The repair stage (filing.ts verifyStatements, repair.ts) has run before this and corrected what
+ * the arithmetic could prove. Then rule V6: a figure no relation confirms is never delivered,
+ * whether read from a text layer or by OCR.
  */
 export interface Drop {
   item: string;
