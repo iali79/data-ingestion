@@ -176,9 +176,9 @@ export function misreadCandidates(raw: string, value: number | null): Candidate[
     if (parsed === null) return;
     const candidate = clean(parsed);
     if (value !== null && same(candidate, value)) return;
-    const hows = found.get(candidate) ?? [];
-    if (!hows.includes(how)) hows.push(how);
-    found.set(candidate, hows);
+    // The first explanation of a value is the simplest (the text as printed, then one edit); a later
+    // one that reaches the same number (a leading 0 inserted) adds nothing but noise to the log.
+    if (!found.has(candidate)) found.set(candidate, [how]);
   };
   if (value !== null) {
     for (const variant of misreadTexts(figureText(raw))) add(variant.text, variant.how);
