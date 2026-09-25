@@ -120,24 +120,35 @@ export async function extractFilingFinancials(
  * not applied here: the caller applies it after. Production (`extractFilingFinancials`) and the
  * offline replay's `--rebuild` (`replay.ts`) call this one function, so a stage 5 change measured
  * on the corpus is the change production makes.
+ *
+ * `analysis` gives the native pages' text layer, from which rule R4c rebuilds rows the table
+ * model fused or shifted; a scanned page has none.
  */
 export function buildStatements(
   statements: SelectedStatement[],
   pages: PageTables[],
   filing: { periodEnded: string },
-  _analysis: DocumentAnalysis | null,
+  analysis: DocumentAnalysis | null,
 ): StatementTable[] {
   const ordered = [...statements].sort((a, b) => Number(b.statementType === 'balance_sheet') - Number(a.statementType === 'balance_sheet'));
   let yearEndMonthDay: string | null = null;
   const out: StatementTable[] = [];
   for (const statement of ordered) {
-    const table = buildStatementTable(statement, pages, { periodEnded: filing.periodEnded, yearEndMonthDay });
+    const table = buildStatementTable(statement, pages, { periodEnded: filing.periodEnded, yearEndMonthDay }, layoutText(analysis));
     if (statement.hinted) table.problems.push(`pages ${statement.pages.join('+')} from an admin hint`);
     if (statement.statementType === 'balance_sheet' && !yearEndMonthDay) yearEndMonthDay = financialYearEnd(table);
     out.push(table);
   }
   inheritUnits(out);
   return out;
+}
+
+/** A native page's `pdftotext -layout` text, by page number; null for a scanned or blank page. */
+function layoutText(analysis: DocumentAnalysis | null): (page: number) => string | null {
+  return (page) => {
+    const found = analysis?.pages[page - 1];
+    return found && found.kind === 'native' && found.textSource === 'pdftotext' ? found.text : null;
+  };
 }
 
 /**
