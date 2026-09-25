@@ -449,19 +449,27 @@ export function describeColumns(
   const titleDate = monthDay(title);
   const titlePhrase = PERIOD_PHRASE.exec(title);
   const titleMonths = titlePhrase && /year\s+ended/iu.test(titlePhrase[0]) && !/quarter|months|half/iu.test(title) ? 12 : null;
+  // C9: when any header prints its own period phrase, the others' lengths are not guessed from
+  // the title or the year-end: a half-year filing that also prints the quarter would otherwise
+  // date the quarter's columns as six months.
+  const phrased = headers.some((header) => periodPhrases(header).size > 0);
   const columns: StatementColumn[] = headers.map((header, index) => {
     const years = [...header.matchAll(/(?<![\d,.])((?:19|20)\d{2})(?![\d,.])/gu)].map((match) => match[1]!);
     const year = years.at(-1) ?? null;
     // C8: an annual filing's column that prints only its year ends at the financial year-end.
     const annualFiling = /^\d{4}$/u.test(filing.periodEnded);
     const date = monthDay(header) ?? titleDate ?? (annualFiling ? filing.yearEndMonthDay ?? null : null);
-    const phrase = PERIOD_PHRASE.exec(header);
+    const phrases = periodPhrases(header);
+    // C9: a header naming two lengths ("Year Ended Quarter": Docling merged the "Half Year Ended"
+    // and "Quarter Ended" spans and lost a word) has no length it can be trusted for.
     const months =
       kind === 'balance'
         ? 0
-        : phrase
-          ? phraseMonths(phrase[0])
-          : titleMonths ?? (date && filing.yearEndMonthDay ? monthsSince(filing.yearEndMonthDay, date) : null);
+        : phrases.size === 1
+          ? [...phrases][0]!
+          : phrases.size > 1 || phrased
+            ? null
+            : titleMonths ?? (date && filing.yearEndMonthDay ? monthsSince(filing.yearEndMonthDay, date) : null);
     if (!year || !date) return { index, header, periodEnd: null, months, kept: false, reason: 'column period not printed' };
     const periodEnd = `${year}${date}`;
     const reason = columnProblem(periodEnd, months, kind, filing.periodEnded);
@@ -476,6 +484,11 @@ export function describeColumns(
     }
   }
   return columns;
+}
+
+/** The period lengths a header's phrases name: "Nine months ended" {9}, "Year Ended Quarter" {12, 3}. */
+function periodPhrases(header: string): Set<number> {
+  return new Set([...header.matchAll(new RegExp(PERIOD_PHRASE.source, 'giu'))].map((match) => phraseMonths(match[0])));
 }
 
 function phraseMonths(phrase: string): number {
@@ -510,6 +523,7 @@ function columnProblem(periodEnd: string, months: number | null, kind: Statement
  * unreadable is null -- a figure is never guessed.
  */
 export function parseFigure(raw: string): number | null {
+  if (fusedFigures(raw)) return null;
   let text = raw.replace(/\s+/gu, '').replace(/−/gu, '-').replace(/^[|\[\]'‘’"“”_=—§]+(?=[\d(])/u, '').replace(/[|\[\]'‘’"“”_*†‡]+$/u, '').replace(/[.,:]+$/u, '');
   if (DASH.test(text) || /^nil$/iu.test(text)) return 0;
   if (text === '') return null;
@@ -519,6 +533,22 @@ export function parseFigure(raw: string): number | null {
   const value = Number(text.replace(/[(),-]/gu, ''));
   if (!Number.isFinite(value)) return null;
   return negative ? -value : value;
+}
+
+/**
+ * Two printed figures in one cell, "8 45,533,482", "- 1,289", "3 6,279": Docling fused two lines,
+ * or a digit fell out of a group. Stripping the space would invent a number (845,533,482), so the
+ * cell is unreadable; the repair stage (R7a) tries each figure against the arithmetic, and the
+ * re-read takes the line from the text layer. A bracket or sign standing apart ("( 18,320,291 )")
+ * is not a second figure.
+ */
+function fusedFigures(raw: string): boolean {
+  const parts = raw.trim().replace(/\u2212/gu, '-').split(/\s+/u);
+  if (parts.length < 2) return false;
+  const last = parts.at(-1)!;
+  const first = parts.slice(0, -1).join('');
+  if (!/^\(?-?\d{1,3}(?:,\d{3})+(?:\.\d+)?\)?$/u.test(last)) return false;
+  return DASH.test(first) || /\d/u.test(first) && FIGURE.test(first);
 }
 
 function clean(text: string): string {

@@ -11,6 +11,10 @@ import { readNotes } from './notes.js';
 import { subsetPages } from './subset.js';
 import { extractTables, type TableExtraction } from './tables.js';
 import { applyChecks, confirmTotals, valuesFromMatches, type Drop } from './validate.js';
+import { buildConstraints } from './constraints.js';
+import { cellKey, cellValue, residual, type CellRef, type Correction, type Reading } from './constraint-types.js';
+import { applyCorrections, repairCells, type RepairResult } from './repair.js';
+import { rereadCells } from './reread.js';
 
 /**
  * One filing through every stage:
@@ -27,6 +31,10 @@ export interface FilingResult {
   classification: Classification;
   statements: StatementSummary[];
   drops: Drop[];
+  /** Cells the repair stage (R7) proved misread and corrected. */
+  corrections: Correction[];
+  /** Failing relations the repair stage could not prove a correction for. */
+  unresolved: RepairResult['unresolved'];
   timings: Record<string, number>;
 }
 
@@ -95,16 +103,20 @@ export async function extractFilingFinancials(
   }
   inheritUnits(statementTables);
   applyUnitHint(statementTables, hints);
-  const { values, summaries } = validateStatements(statementTables, drops);
+  const verified = await time('verify', () =>
+    verifyStatements(statementTables, drops, (suspect, cells) => rereadCells(pdf, analysis, suspect, cells, path.join(workDir, 'reread'))),
+  );
+  statementTables.splice(0, statementTables.length, ...verified.tables);
+  const { values, summaries, corrections, unresolved } = verified;
   // Notes last: they are delivered only when they reconcile with the checked statements.
   values.push(...readNotes(classification.notes, tables.pages, analysis, statementTables, values, drops));
   await writeJson(workDir, 'statements.json', { statements: summaries, tables: statementTables });
-  await writeJson(workDir, 'validation.json', { drops, values });
+  await writeJson(workDir, 'validation.json', { drops, values, corrections, unresolved });
 
   const periods = buildPeriods(values, price);
   const evidencePages = [...new Set(values.map((value) => value.page).filter((page): page is number => page !== null))].sort((a, b) => a - b);
   const evidence = evidencePages.map((pageNumber) => pageEvidence(pageNumber, analysis, statementTables));
-  return { periods, evidence, analysis, classification, statements: summaries, drops, timings };
+  return { periods, evidence, analysis, classification, statements: summaries, drops, corrections, unresolved, timings };
 }
 
 /**
@@ -121,6 +133,68 @@ export async function extractFilingFinancials(
  * grids and text, and reconcile against the values this returns (see `readNotes`).
  */
 export function validateStatements(tables: StatementTable[], drops: Drop[]): { values: ReportedValue[]; summaries: StatementSummary[] } {
+  const { values, summaries } = matchStatements(tables, drops);
+  return { values: applyChecks(values, tables, drops), summaries };
+}
+
+/** Second readings of suspect cells, by cell key (reread.ts in production; none offline for OCR pages). */
+export type Rereader = (tables: StatementTable[], cells: CellRef[]) => Promise<Map<string, Reading[]>>;
+
+export interface Verified {
+  /** The tables with every proven correction applied (the input tables are not modified). */
+  tables: StatementTable[];
+  values: ReportedValue[];
+  summaries: StatementSummary[];
+  corrections: Correction[];
+  unresolved: RepairResult['unresolved'];
+}
+
+/**
+ * Stage 6b, verify and repair, then stage 6 on the result:
+ *   1. every relation the filing must satisfy is built over the tables as read (constraints.ts);
+ *   2. the cells of each relation that fails, or cannot be evaluated because a printed cell is
+ *      unreadable, are suspects: they get an independent second reading (the text layer of a
+ *      native page, a 300 dpi OCR of a scanned one);
+ *   3. the repair stage (R7, repair.ts) replaces a reading only when the arithmetic proves it: the
+ *      new value makes two independent relations hold (or one, and a second reading agrees), no
+ *      other value would, and nothing that held before breaks;
+ *   4. stage 6 runs on the corrected tables, so a corrected figure is confirmed by the same
+ *      checks as any other, and V6 delivers nothing unconfirmed.
+ * A corrected figure carries an "R7" entry in its checks with the reading it replaced, so the
+ * review panel shows what was changed and why.
+ */
+export async function verifyStatements(tables: StatementTable[], drops: Drop[], reread: Rereader | null): Promise<Verified> {
+  const first = matchStatements(tables, []);
+  const constraints = buildConstraints(tables, first.values);
+  const suspects = new Map<string, CellRef>();
+  for (const constraint of constraints) {
+    if (constraint.advisory) continue;
+    const r = residual(tables, constraint);
+    const unreadable = r === null && constraint.terms.some((term) => cellValue(tables, term.cell) === null && printedText(tables, term.cell) !== '');
+    if (unreadable || (r !== null && Math.abs(r) > constraint.tolerance)) for (const term of constraint.terms) suspects.set(cellKey(term.cell), term.cell);
+  }
+  let corrections: Correction[] = [];
+  let unresolved: RepairResult['unresolved'] = [];
+  if (suspects.size > 0) {
+    const readings = reread ? await reread(tables, [...suspects.values()]).catch(() => new Map<string, Reading[]>()) : new Map<string, Reading[]>();
+    ({ corrections, unresolved } = repairCells(tables, constraints, readings));
+    if (corrections.length > 0) tables = applyCorrections(tables, corrections);
+  }
+  const { values, summaries } = validateStatements(tables, drops);
+  for (const value of values) {
+    if (!value.repaired) continue;
+    const from = value.repaired.from === null ? 'unreadable' : String(value.repaired.from);
+    value.checks = [...(value.checks ?? []), `R7 corrected from ${from}: ${value.repaired.how}`.slice(0, 80)];
+  }
+  return { tables, values, summaries, corrections, unresolved };
+}
+
+function printedText(tables: StatementTable[], cell: CellRef): string {
+  return tables[cell.table]?.rows.find((row) => row.id === cell.row)?.cells[cell.column]?.trim() ?? '';
+}
+
+/** Matched rows to reported values, table by table (R1-R5, A1, U1-U4), deduplicated; no identities yet. */
+function matchStatements(tables: StatementTable[], drops: Drop[]): { values: ReportedValue[]; summaries: StatementSummary[] } {
   const summaries: StatementSummary[] = [];
   const values: ReportedValue[] = [];
   for (const [tableIndex, table] of tables.entries()) {
@@ -142,7 +216,7 @@ export function validateStatements(tables: StatementTable[], drops: Drop[]): { v
       problems: table.problems,
     });
   }
-  return { values: applyChecks(dedupe(values), tables, drops), summaries };
+  return { values: dedupe(values), summaries };
 }
 
 function pageEvidence(pageNumber: number, analysis: DocumentAnalysis, tables: StatementTable[]): FilingResult['evidence'][number] {

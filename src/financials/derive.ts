@@ -63,6 +63,8 @@ export interface ReportedValue {
   checks?: string[];
   /** The printed cell it was read from (statement table index, row id, value column); absent for notes. */
   cell?: { table: number; row: string; column: number };
+  /** Set when the repair stage (R7) replaced the first reading of the printed cell. */
+  repaired?: { from: number | null; how: string };
 }
 
 export type PriceLookup = (date: string) => { close: number; date: string; source: string } | null;
