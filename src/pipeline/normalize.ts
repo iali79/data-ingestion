@@ -159,6 +159,11 @@ export function buildStatementTable(
     const heading = labelHeader.replace(/(?:for\s+the|as\s+(?:at|on))\s.*$/iu, '').trim();
     if (heading && !/^note$/iu.test(heading)) pending.push(heading);
     for (const text of grid.leading(layout.label)) pending.push(clean(text));
+    // Row ids are unique within the statement: a second table on the same page (the other half of
+    // a side-by-side balance sheet, a statement Docling split in two) numbers its rows under its
+    // own prefix, or the halves' rows would share ids and each other's checks.
+    const before = grids.slice(0, index).filter((item) => item.page.pageNumber === page.pageNumber).length;
+    const prefix = before ? `p${page.pageNumber}.t${before}` : `p${page.pageNumber}`;
     for (let r = grid.bodyStart; r < grid.rows; r++) {
       let label = clean(grid.cell(r, layout.label));
       const cells = layout.values.map((col) => clean(grid.cell(r, col)));
@@ -176,7 +181,7 @@ export function buildStatementTable(
         label = fused[2];
       }
       rows.push({
-        id: `p${page.pageNumber}.r${r}`,
+        id: `${prefix}.r${r}`,
         page: page.pageNumber,
         label,
         cells,
