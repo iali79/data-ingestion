@@ -187,12 +187,22 @@ export async function verifyStatements(tables: StatementTable[], drops: Drop[], 
   }
   const { values, summaries } = validateStatements(tables, drops);
   for (const value of values) {
-    if (!value.repaired) continue;
-    const from = value.repaired.from === null ? 'unreadable' : String(value.repaired.from);
-    value.checks = [...(value.checks ?? []), `R7 corrected from ${from}: ${value.repaired.how}`.slice(0, 80)];
+    if (value.repaired) {
+      const from = value.repaired.from === null ? 'unreadable' : String(value.repaired.from);
+      value.checks = [...(value.checks ?? []), `R7 corrected from ${from}: ${value.repaired.how}`.slice(0, 80)];
+    }
+    // The ingest API refuses a whole payload when a figure lists more than 20 checks: a figure
+    // cross-checked by many relations keeps the first ones, and always its correction record.
+    if ((value.checks?.length ?? 0) > MAX_CHECKS) {
+      const repair = value.checks!.filter((check) => check.startsWith('R7 '));
+      value.checks = [...value.checks!.filter((check) => !check.startsWith('R7 ')).slice(0, MAX_CHECKS - repair.length), ...repair];
+    }
   }
   return { tables, values, summaries, corrections, unresolved };
 }
+
+/** The ingest API's limit on a figure's checks (financialsPayloadProblems). */
+const MAX_CHECKS = 20;
 
 function printedText(tables: StatementTable[], cell: CellRef): string {
   return tables[cell.table]?.rows.find((row) => row.id === cell.row)?.cells[cell.column]?.trim() ?? '';
