@@ -37,6 +37,8 @@ export interface StatementRow {
   /** Headings printed between the previous row and this one, in order ("ASSETS", "CURRENT ASSETS"). */
   headings: string[];
   ocr: boolean;
+  /** Columns whose value the repair stage (rule R7) corrected: the first reading and the kind of misread. */
+  repaired?: Record<number, { from: number | null; how: string }>;
 }
 
 export interface StatementTable {
