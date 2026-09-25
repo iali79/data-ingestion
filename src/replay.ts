@@ -5,7 +5,7 @@ import { buildPeriods, type PeriodFigures, type ReportedValue } from './financia
 import { runCommand } from './extraction.js';
 import type { DocumentAnalysis, PageAnalysis } from './pipeline/analyse.js';
 import type { Classification } from './pipeline/classify.js';
-import { verifyStatements, type Rereader, type StatementSummary } from './pipeline/filing.js';
+import { buildStatements, verifyStatements, type Rereader, type StatementSummary } from './pipeline/filing.js';
 import type { Correction } from './pipeline/constraint-types.js';
 import { rereadCells } from './pipeline/reread.js';
 import { normalizeLabel } from './pipeline/labels.js';
@@ -18,7 +18,7 @@ import { countFigures, scorePeriods, type AnswerKey, type Score } from './score.
 /**
  * Offline replay of stage 6 onward over saved evaluation artifacts: no Docling, no OCR, no network.
  *
- *   node dist/replay.js <corpusDir> [outJson] [answerKey.json ...]
+ *   node dist/replay.js [--rebuild] <corpusDir> [outJson] [answerKey.json ...]
  *
  * `corpusDir` holds downloaded "Evaluate" workflow artifacts: `run-<id>/evaluation-<n>/<SYMBOL-ID>/`
  * with the stage outputs a run wrote (statements.json, tables.json, classification.json,
@@ -32,6 +32,13 @@ import { countFigures, scorePeriods, type AnswerKey, type Score } from './score.
  * readers and `buildPeriods`. So a change to the label rules, the checks or the derivations can be
  * measured before and after on the whole corpus in seconds. A change to stages 1-5 (classifier,
  * table building, parseFigure) is NOT measured: the tables are replayed as the run built them.
+ *
+ * `--rebuild` measures stage 5 as well: the statement tables are built again by `buildStatements`
+ * (the function production calls) from the saved page grids (tables.json), the saved page
+ * selection (classification.json, hints already applied to it) and the page text of stage 1
+ * (see `replayAnalysis`), with the filing period from the payload. Stages 1-4 are still as the run
+ * left them. An admin unit hint (rule H3) is not in the corpus and is not applied. A filing whose
+ * payload has no period, or whose grids or classification are missing, is skipped.
  *
  * Notes are replayed from the saved page grids (tables.json) and classification. Their only use of
  * page text, the par value line, reads native pages; that text is `pdftotext -layout` of
@@ -325,13 +332,29 @@ export interface Replayed {
   unresolved: Array<{ constraint: string; reason: string }>;
 }
 
-/** Stage 6 onward for one saved filing, as extractFilingFinancials runs it. */
-export async function replayFiling(dir: string): Promise<Replayed | null> {
-  const saved = await readJson<{ tables: StatementTable[] }>(path.join(dir, 'statements.json'));
-  if (!saved || !Array.isArray(saved.tables)) return null;
-  const tables = saved.tables.map(uniqueRowIds);
-  const drops: Drop[] = [];
+export interface ReplayOptions {
+  /** Build the statement tables again from the saved grids (stage 5), instead of reading statements.json. */
+  rebuild?: boolean;
+  /** The filing's period ("2025", "2026-03-31"), from its payload; needed to rebuild. */
+  periodEnded?: string | null;
+}
+
+/** Stage 6 onward for one saved filing, as extractFilingFinancials runs it (stage 5 onward with `rebuild`). */
+export async function replayFiling(dir: string, options: ReplayOptions = {}): Promise<Replayed | null> {
   const analysis = await replayAnalysis(dir);
+  const classification = await readJson<Classification>(path.join(dir, 'classification.json'));
+  const grids = await readJson<TableExtraction>(path.join(dir, 'tables.json'));
+  const pages = grids?.pages ?? [];
+  let tables: StatementTable[];
+  if (options.rebuild) {
+    if (!classification || !grids || !options.periodEnded) return null;
+    tables = buildStatements(classification.statements, pages, { periodEnded: options.periodEnded }, analysis);
+  } else {
+    const saved = await readJson<{ tables: StatementTable[] }>(path.join(dir, 'statements.json'));
+    if (!saved || !Array.isArray(saved.tables)) return null;
+    tables = saved.tables.map(uniqueRowIds);
+  }
+  const drops: Drop[] = [];
   // The second reading offline: the text layer of native pages. Scanned pages would need
   // tesseract, which the replay does not run, so they get no second reading here.
   const reread: Rereader = async (suspect, cells) => {
@@ -340,8 +363,6 @@ export async function replayFiling(dir: string): Promise<Replayed | null> {
   };
   const verified = await verifyStatements(tables, drops, reread);
   const { values, summaries, corrections, unresolved } = verified;
-  const classification = await readJson<Classification>(path.join(dir, 'classification.json'));
-  const pages = (await readJson<TableExtraction>(path.join(dir, 'tables.json')))?.pages ?? [];
   const notes = classification ? readNotes(classification.notes, pages, analysis, verified.tables, values, drops) : [];
   const periods = buildPeriods([...values, ...notes], () => null);
   return { values, notes, summaries, drops, periods, tables: verified.tables, corrections, unresolved };
@@ -374,10 +395,10 @@ async function filingMeta(filing: FilingDir): Promise<FilingMeta> {
   };
 }
 
-export async function measureFiling(filing: FilingDir, answers: AnswerKey): Promise<FilingMetrics | null> {
-  const replayed = await replayFiling(filing.dir);
-  if (!replayed) return null;
+export async function measureFiling(filing: FilingDir, answers: AnswerKey, options: { rebuild?: boolean } = {}): Promise<FilingMetrics | null> {
   const meta = await filingMeta(filing);
+  const replayed = await replayFiling(filing.dir, { rebuild: options.rebuild, periodEnded: meta.periodEnded });
+  if (!replayed) return null;
   const { values, notes, summaries, drops, periods, tables } = replayed;
   const ocrPages = new Set(tables.flatMap((table) => table.rows.filter((row) => row.ocr).map((row) => row.page)));
   const byCheck: Record<string, number> = {};
@@ -458,22 +479,22 @@ function mirrorMismatch(table: StatementTable, runs: A1Run[]): number {
   return [...mine].filter((cell) => !theirs.has(cell)).length + [...theirs].filter((cell) => !mine.has(cell)).length;
 }
 
-const RULES = ['A1', 'I1', 'I2', 'B4', 'B5', 'F4', 'F5', 'X1', 'X2', 'V5', 'R5', 'negative', 'other'];
+const RULES = ['A1', 'I1', 'I2', 'B4', 'B5', 'F4', 'F5', 'X1', 'X2', 'E1', 'V5', 'V6', 'R5', 'negative', 'other'];
 
 function report(metrics: FilingMetrics[]): string {
   const sum = (pick: (item: FilingMetrics) => number) => metrics.reduce((total, item) => total + pick(item), 0);
   const lines: string[] = [];
-  const head = ['filing', 'tbl', 'ocr', 'deliv', 'chk', 'nochk', 'notes', 'drops', 'unmat', 'deriv', 'ratio', 'A1runs', 'A1unconf', 'A1hidden', 'vs.run', 'score'];
+  const head = ['filing', 'tbl', 'ocr', 'deliv', 'chk', 'nochk', 'notes', 'drops', 'V6', 'R7', 'unmat', 'deriv', 'ratio', 'A1runs', 'A1unconf', 'A1hidden', 'vs.run', 'score'];
   const drift = (item: FilingMetrics) => (item.recorded.values === null ? 0 : item.delivered + item.notes - item.recorded.values);
   const rows = metrics.map((item) => [
-    item.id, item.tables, item.ocrTables, item.delivered, item.checked, item.unchecked, item.notes, item.drops, item.unmatchedRows, item.derived, item.ratios,
+    item.id, item.tables, item.ocrTables, item.delivered, item.checked, item.unchecked, item.notes, item.drops, item.dropsByRule.V6 ?? 0, item.corrections.length, item.unmatchedRows, item.derived, item.ratios,
     item.a1.runs, item.a1.unconfirmedTotals, item.a1.crossColumnFailures, item.recorded.values === null ? '-' : signed(drift(item)),
     item.score ? `${item.score.correct}/${item.score.expected} w${item.score.wrong.length} m${item.score.missing.length}` : '-',
   ].map(String));
   const scored = metrics.filter((item) => item.score);
   rows.push([
     `TOTAL (${metrics.length})`, sum((item) => item.tables), sum((item) => item.ocrTables), sum((item) => item.delivered), sum((item) => item.checked), sum((item) => item.unchecked),
-    sum((item) => item.notes), sum((item) => item.drops), sum((item) => item.unmatchedRows), sum((item) => item.derived), sum((item) => item.ratios),
+    sum((item) => item.notes), sum((item) => item.drops), sum((item) => item.dropsByRule.V6 ?? 0), sum((item) => item.corrections.length), sum((item) => item.unmatchedRows), sum((item) => item.derived), sum((item) => item.ratios),
     sum((item) => item.a1.runs), sum((item) => item.a1.unconfirmedTotals), sum((item) => item.a1.crossColumnFailures), signed(sum(drift)),
     scored.length ? `${scored.reduce((total, item) => total + item.score!.correct, 0)}/${scored.reduce((total, item) => total + item.score!.expected, 0)} w${scored.reduce((total, item) => total + item.score!.wrong.length, 0)} m${scored.reduce((total, item) => total + item.score!.missing.length, 0)}` : '-',
   ].map(String));
@@ -499,9 +520,11 @@ function signed(value: number): string {
 }
 
 async function main(): Promise<void> {
-  const [corpusDir, outJson, ...keys] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const rebuild = args.includes('--rebuild');
+  const [corpusDir, outJson, ...keys] = args.filter((arg) => arg !== '--rebuild');
   if (!corpusDir) {
-    console.error('usage: node dist/replay.js <corpusDir> [outJson] [answerKey.json ...]');
+    console.error('usage: node dist/replay.js [--rebuild] <corpusDir> [outJson] [answerKey.json ...]');
     process.exit(2);
   }
   const answers = await readAnswerKeys(keys.length ? keys : [path.join(ROOT, 'samples', 'hpl-answers.json')]);
@@ -512,14 +535,14 @@ async function main(): Promise<void> {
   await Promise.all(
     Array.from({ length: Math.min(8, filings.length) }, async () => {
       for (let index = next++; index < filings.length; index = next++) {
-        measured[index] = await measureFiling(filings[index]!, answers);
-        if (!measured[index]) console.error(`skipped ${filings[index]!.id}: statements.json unreadable`);
+        measured[index] = await measureFiling(filings[index]!, answers, { rebuild });
+        if (!measured[index]) console.error(`skipped ${filings[index]!.id}: ${rebuild ? 'grids, classification or period missing' : 'statements.json unreadable'}`);
       }
     }),
   );
   const metrics = measured.filter((item): item is FilingMetrics => item !== null);
   console.log(report(metrics));
-  if (outJson) await writeFile(outJson, JSON.stringify({ corpus: path.resolve(corpusDir), filings: metrics }, null, 1));
+  if (outJson) await writeFile(outJson, JSON.stringify({ corpus: path.resolve(corpusDir), rebuild, filings: metrics }, null, 1));
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
