@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -371,6 +372,13 @@ describe('rereadCells', () => {
       throw new Error(`unexpected ${command}`);
     });
   }
+
+  it('creates its work directory before rendering: pdftoppm cannot, and a failed render is skipped silently', async () => {
+    tesseract();
+    const nested = path.join(workDir, 'not-yet', 'reread');
+    await rereadCells('filing.pdf', analysis, [native, scanned], [{ table: 1, row: 'p3.r12', column: 0 }], nested);
+    expect(existsSync(nested)).toBe(true);
+  });
 
   it('reads native cells from memory and renders a scanned page once for all its cells', async () => {
     tesseract();
