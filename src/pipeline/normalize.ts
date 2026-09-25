@@ -3,6 +3,7 @@ import type { Statement } from '../financials/definitions.js';
 import { monthsSince, unitFromText } from '../financials/conventions.js';
 import type { SelectedStatement } from './classify.js';
 import type { PageTable, PageTables } from './tables.js';
+import { rebuildFromText } from './fused.js';
 
 /**
  * Stage 5a -- a statement's table(s) as rows and dated value columns.
@@ -93,11 +94,15 @@ const FUSED_HEADING =
 /**
  * Builds one statement from the tables on its pages. On a page shared with another statement
  * (side by side), only the tables under this statement's title are used.
+ *
+ * `layoutText` gives a native page's `pdftotext -layout` text (null for a scanned page): rows the
+ * table model fused or shifted are rebuilt from it (rule R4c, fused.ts).
  */
 export function buildStatementTable(
   statement: SelectedStatement,
   pages: PageTables[],
   filing: { periodEnded: string; yearEndMonthDay?: string | null },
+  layoutText: (page: number) => string | null = () => null,
 ): StatementTable {
   const kind = KIND[statement.statementType];
   const problems: string[] = [];
@@ -194,8 +199,19 @@ export function buildStatementTable(
     }
   }
 
-  splitFusedRows(rows);
-  mergeSplitRows(rows);
+  // R4c first: where the text layer settles a fused row, R4b and R4 have nothing to guess.
+  const fromText = rebuildFromText(rows, layoutText);
+  rows.splice(0, rows.length, ...fromText.rows);
+  problems.push(...fromText.problems);
+  for (const row of fromText.rebuilt) {
+    const fused = FUSED_HEADING.exec(row.label);
+    if (fused && fused[2]) {
+      row.headings = [...row.headings, fused[1]!];
+      row.label = fused[2];
+    }
+  }
+  splitFusedRows(rows, (row) => row.ocr && layoutText(row.page) === null);
+  mergeSplitRows(rows, fromText.rebuilt);
   if (titleExtra.length > 0) title = `${title} ${titleExtra.join(' ')}`.trim();
   // The unit ("Rupees in '000") is printed in the header, the title block, or a body cell of the
   // first row, depending on how the table was drawn.
@@ -208,27 +224,58 @@ export function buildStatementTable(
 }
 
 /**
- * Rule R4b: two printed lines that the table model fused into one row, each cell holding both
- * lines' figures ("Lease rentals paid Net cash used in financing activities" | "(29,656)
- * (2,767,428)"). Split back only when every value cell holds exactly two figures (or dashes) and
- * the second label starts a total ("Net cash ...", "Net increase ...", "Cash and cash equivalents
- * ...", "Total ..."). The two rows still have to pass the arithmetic checks.
+ * Rule R4b: printed lines that the table model fused into one row, each cell holding every line's
+ * figures ("Lease rentals paid Net cash used in financing activities" | "(29,656) (2,767,428)"),
+ * split from the row itself, where rule R4c could not read the lines from a text layer:
+ *
+ * - on any page, two lines when every value cell holds exactly two figures (or dashes) and the
+ *   second caption starts a total ("Net cash ...", "Net increase ...", "Cash and cash equivalents
+ *   ...", "Total ...");
+ * - on a page read by OCR with no text layer (a scanned page), k lines (two to four) when every
+ *   value cell holds exactly k figures and the caption has exactly k - 1 places where a new
+ *   caption can start: a word with a capital letter after a word that neither connects ("of",
+ *   "and", "from", ...) nor ends in a comma, dash or slash. "Stores, spares and loose tools
+ *   Contract costs" splits once; "Property, Plant and Equipment Long term deposits" has two such
+ *   places and is left alone, as is a caption with fewer places than lines (an uncaptioned total
+ *   among them).
+ *
+ * The figures keep the order the table model read them in, top line first. That order is only as
+ * good as the table model's: on ASHT-261320 p.27 it filed the 2024 column's figures a row out of
+ * place, and the split gave "Contract costs" the next line's 2024 figure. So the rows still have to
+ * pass the arithmetic checks, and V6 withholds what no relation confirms (as it did there).
  */
-function splitFusedRows(rows: StatementRow[]): void {
+function splitFusedRows(rows: StatementRow[], scanned: (row: StatementRow) => boolean): void {
   const second = /^(.+?)\s+((?:net\s+(?:cash|increase|decrease|\(?(?:increase|decrease)\)?|foreign)|cash\s+and\s+cash\s+equivalents|total)\b.*)$/iu;
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]!;
-    const labels = second.exec(row.label);
-    if (!labels) continue;
     const parts = row.cells.map((cell) => cell.split(/\s+/u).filter(Boolean));
-    if (!parts.every((tokens) => tokens.length === 2 && tokens.every((token) => parseFigure(token) !== null))) continue;
-    const [firstCells, secondCells] = [parts.map((tokens) => tokens[0]!), parts.map((tokens) => tokens[1]!)];
-    rows.splice(i, 1,
-      { ...row, label: labels[1]!, cells: firstCells, values: firstCells.map(parseFigure) },
-      { ...row, id: `${row.id}b`, label: labels[2]!, cells: secondCells, values: secondCells.map(parseFigure), note: null, headings: [] },
-    );
-    i++;
+    const k = parts[0]?.length ?? 0;
+    if (k < 2 || !parts.every((tokens) => tokens.length === k && tokens.every((token) => parseFigure(token) !== null))) continue;
+    const total = k === 2 ? second.exec(row.label) : null;
+    const captions = total ? [total[1]!, total[2]!] : scanned(row) && k <= 4 ? captionsOf(row.label, k) : null;
+    if (!captions) continue;
+    const split = captions.map((label, j): StatementRow => {
+      const cells = parts.map((tokens) => tokens[j]!);
+      return j === 0 ? { ...row, label, cells, values: cells.map(parseFigure) } : { ...row, id: `${row.id}${String.fromCharCode(97 + j)}`, label, cells, values: cells.map(parseFigure), note: null, headings: [] };
+    });
+    rows.splice(i, 1, ...split);
+    i += split.length - 1;
   }
+}
+
+const CONNECTING = /^(?:of|and|the|in|at|for|from|to|on|by|with|due|&|-|\/|less|including|excluding)$/iu;
+
+/** A caption cut into exactly `k` captions where new ones can start (rule R4b); null when that is not exactly k - 1 places. */
+function captionsOf(label: string, k: number): string[] | null {
+  const list = label.split(/\s+/u).filter(Boolean);
+  const starts: number[] = [];
+  for (let i = 1; i < list.length; i++) {
+    const previous = list[i - 1]!;
+    if (/^\(?[A-Z][a-z]/u.test(list[i]!) && !CONNECTING.test(previous) && !/[,\-/&]$/u.test(previous)) starts.push(i);
+  }
+  if (starts.length !== k - 1) return null;
+  const bounds = [0, ...starts, list.length];
+  return bounds.slice(0, -1).map((from, j) => list.slice(from, bounds[j + 1]).join(' '));
 }
 
 /**
@@ -236,12 +283,14 @@ function splitFusedRows(rows: StatementRow[]): void {
  * part of the label and part of the figures ("NET" + "FOREIGN EXCHANGE DIFFERENCES"). Merged only
  * when the two rows' figure cells do not overlap and together fill every column, and the first
  * label is a fragment (at most two words, or ending in a connecting word). The merged row still
- * has to pass the arithmetic checks.
+ * has to pass the arithmetic checks. Rows rule R4c rebuilt from the text layer are left alone.
  */
-function mergeSplitRows(rows: StatementRow[]): void {
+function mergeSplitRows(rows: StatementRow[], printed: Set<StatementRow>): void {
   for (let i = 0; i + 1 < rows.length; i++) {
     const [first, second] = [rows[i]!, rows[i + 1]!];
     if (first.page !== second.page || second.headings.length > 0 || !first.label || !second.label) continue;
+    // Rows rebuilt from the text layer (R4c) are printed lines as printed: never merged.
+    if (printed.has(first) || printed.has(second)) continue;
     const words = first.label.split(/\s+/u);
     const fragment = words.length <= 2 || /\b(?:of|the|and|in|at|for|from|to|on|by)$/iu.test(first.label);
     const complementary = first.cells.every((cell, index) => (cell === '') !== (second.cells[index] === ''));

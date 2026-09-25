@@ -148,7 +148,7 @@ async function ocrPage(pdf: string, page: number, workDir: string): Promise<OcrT
 // Finding a row's line
 
 /** A whitespace-delimited piece of a line, with its character span (end exclusive). */
-interface Token {
+export interface Token {
   text: string;
   start: number;
   end: number;
@@ -238,11 +238,12 @@ export function readRowsFromText(text: string, rows: StatementRow[], mode: Mode 
  * then "p160.r3"): two tables on the page, such as the halves of a balance sheet printed side by
  * side, each read top to bottom on the same lines. Each piece is matched to the lines on its own.
  */
-function pieces(rows: StatementRow[]): StatementRow[][] {
+export function pieces(rows: StatementRow[]): StatementRow[][] {
   const out: StatementRow[][] = [];
   let previous = -Infinity;
   for (const row of rows) {
-    // "p45.r12b" is the second half of a fused row (rule R4b), still row 12.
+    // "p45.r12b" is the second half of a fused row (rule R4b), "p45.r12a".."p45.r12c" the lines a
+    // fused row was rebuilt into (rule R4c): all still row 12.
     const number = Number(/\.r(\d+)/u.exec(row.id)?.[1] ?? NaN);
     if (out.length === 0 || number < previous) out.push([]);
     out.at(-1)!.push(row);
@@ -326,7 +327,7 @@ const MIN_SCORE = 0.5;
 const AMBIGUITY = 0.1;
 const STOPWORDS = new Set(['and', 'of', 'the', 'in', 'for', 'to', 'from', 'on', 'at', 'by', 'a', 'an', 'as', 'or']);
 
-function words(text: string): string[] {
+export function words(text: string): string[] {
   return text
     .toLowerCase()
     .replace(/[^a-z]+/gu, ' ')
@@ -377,7 +378,7 @@ function matched(needles: string[], haystack: string[], mode: Mode): number {
   return count;
 }
 
-function sameWord(a: string, b: string, mode: Mode): boolean {
+export function sameWord(a: string, b: string, mode: Mode): boolean {
   if (a === b) return true;
   const shorter = Math.min(a.length, b.length);
   if (shorter >= 4 && (a.startsWith(b) || b.startsWith(a))) return true;
@@ -433,7 +434,7 @@ function captionLine(line: string, segment: Segment, mode: Mode): string[] | nul
   return found.length > 0 ? found : null;
 }
 
-function tokens(line: string): Token[] {
+export function tokens(line: string): Token[] {
   return [...line.matchAll(/\S+/gu)].map((match) => ({ text: match[0], start: match.index, end: match.index + match[0].length }));
 }
 
@@ -454,7 +455,7 @@ function chunks(line: string): Token[][] {
 }
 
 /** "( 1,234 )" printed with spaces inside the brackets is one figure. */
-function joinBrackets(list: Token[]): Token[] {
+export function joinBrackets(list: Token[]): Token[] {
   const out: Token[] = [];
   for (const token of list) {
     const last = out.at(-1);
