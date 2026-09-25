@@ -27,10 +27,10 @@ export interface Drop {
 }
 
 /** Labels of rows that close a running total. Uncaptioned rows are totals too. */
-const TOTAL_LABEL =
+export const TOTAL_LABEL =
   /^(?:total\b|gross\b|operating \(?(?:profit|loss)|.*\b(?:profit|loss)\)?(?: \/ \(?(?:profit|loss)\)?)? (?:before|after|for the)\b|net cash\b|net \(?(?:increase|decrease)|cash (?:generated|used|\(used in\)|from)\b.*operations$|cash and cash equivalents at (?:the )?end)/u;
 /** How far above a total its components may start. */
-const MAX_RUN = 40;
+export const MAX_RUN = 40;
 
 /** Row id -> columns (value indexes) confirmed by table arithmetic, with the total that confirmed them. */
 export type Confirmed = Map<string, Map<number, string>>;

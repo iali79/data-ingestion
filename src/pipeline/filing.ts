@@ -86,9 +86,7 @@ export async function extractFilingFinancials(
   const ordered = [...classification.statements].sort((a, b) => Number(b.statementType === 'balance_sheet') - Number(a.statementType === 'balance_sheet'));
   let yearEndMonthDay: string | null = null;
   const statementTables: StatementTable[] = [];
-  const summaries: StatementSummary[] = [];
   const drops: Drop[] = [];
-  let values: ReportedValue[] = [];
   for (const statement of ordered) {
     const table = buildStatementTable(statement, tables.pages, { periodEnded: filing.periodEnded, yearEndMonthDay });
     if (statement.hinted) table.problems.push(`pages ${statement.pages.join('+')} from an admin hint`);
@@ -97,7 +95,35 @@ export async function extractFilingFinancials(
   }
   inheritUnits(statementTables);
   applyUnitHint(statementTables, hints);
-  for (const [tableIndex, table] of statementTables.entries()) {
+  const { values, summaries } = validateStatements(statementTables, drops);
+  // Notes last: they are delivered only when they reconcile with the checked statements.
+  values.push(...readNotes(classification.notes, tables.pages, analysis, statementTables, values, drops));
+  await writeJson(workDir, 'statements.json', { statements: summaries, tables: statementTables });
+  await writeJson(workDir, 'validation.json', { drops, values });
+
+  const periods = buildPeriods(values, price);
+  const evidencePages = [...new Set(values.map((value) => value.page).filter((page): page is number => page !== null))].sort((a, b) => a - b);
+  const evidence = evidencePages.map((pageNumber) => pageEvidence(pageNumber, analysis, statementTables));
+  return { periods, evidence, analysis, classification, statements: summaries, drops, timings };
+}
+
+/**
+ * Stage 6 over a filing's statement tables, from the built tables onward: label rules (R1-R5),
+ * table arithmetic (A1), reported values with the printed cell each came from, then the
+ * identities, the balance-sheet equality, the cross-statement tie and the OCR rule (I1-F5, B5, X1,
+ * V5) on the deduplicated values. Pure: it reads only the tables, and records every removal in
+ * `drops`. Production (`extractFilingFinancials`) and the offline replay (`replay.ts`, which feeds
+ * it the `statements.json` tables a run saved) call this one function, so a figure the replay
+ * counts is a figure production would deliver from the same tables.
+ *
+ * `tables` must already carry their final unit scale (rule U1 and any admin unit hint applied),
+ * and their order fixes each value's `cell.table`. Notes are not read here: they need the page
+ * grids and text, and reconcile against the values this returns (see `readNotes`).
+ */
+export function validateStatements(tables: StatementTable[], drops: Drop[]): { values: ReportedValue[]; summaries: StatementSummary[] } {
+  const summaries: StatementSummary[] = [];
+  const values: ReportedValue[] = [];
+  for (const [tableIndex, table] of tables.entries()) {
     const kind = KIND[table.statementType];
     const { matches, unmatched } = matchRows(kind, table.rows);
     const confirmed = confirmTotals(table);
@@ -116,16 +142,7 @@ export async function extractFilingFinancials(
       problems: table.problems,
     });
   }
-  values = applyChecks(dedupe(values), statementTables, drops);
-  // Notes last: they are delivered only when they reconcile with the checked statements.
-  values.push(...readNotes(classification.notes, tables.pages, analysis, statementTables, values, drops));
-  await writeJson(workDir, 'statements.json', { statements: summaries, tables: statementTables });
-  await writeJson(workDir, 'validation.json', { drops, values });
-
-  const periods = buildPeriods(values, price);
-  const evidencePages = [...new Set(values.map((value) => value.page).filter((page): page is number => page !== null))].sort((a, b) => a - b);
-  const evidence = evidencePages.map((pageNumber) => pageEvidence(pageNumber, analysis, statementTables));
-  return { periods, evidence, analysis, classification, statements: summaries, drops, timings };
+  return { values: applyChecks(dedupe(values), tables, drops), summaries };
 }
 
 function pageEvidence(pageNumber: number, analysis: DocumentAnalysis, tables: StatementTable[]): FilingResult['evidence'][number] {

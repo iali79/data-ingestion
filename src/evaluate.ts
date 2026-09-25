@@ -4,6 +4,7 @@ import type { PeriodFigures } from './financials/derive.js';
 import { financialsPayload } from './financials/payload.js';
 import { downloadDocument } from './extraction.js';
 import { extractFilingFinancials, type FilingResult } from './pipeline/filing.js';
+import { countFigures, format, scorePeriods, type AnswerKey, type Score } from './score.js';
 
 /**
  * Dry run of the financials pipeline over a fixed list of filings. For each, writes the exact
@@ -31,17 +32,6 @@ interface ReviewExport {
   samples: Sample[];
   answers: AnswerKey;
 }
-
-type AnswerKey = Record<string, Record<string, Record<string, number>>>;
-
-interface Score {
-  expected: number;
-  correct: number;
-  wrong: string[];
-  missing: string[];
-}
-
-const SECTION = { income: 'income', balance: 'balance', cash_flow: 'cashFlow' } as const;
 
 async function main(): Promise<void> {
   const [samplesPath = 'samples/hpl.json', answersPath = 'samples/hpl-answers.json', outDir = 'out', only] = process.argv.slice(2);
@@ -132,40 +122,6 @@ function periodName(period: PeriodFigures): string {
   return `${period.periodEnd}${period.months ? `/${period.months}M` : ''}${period.basis === 'unknown' ? '' : ` ${period.basis.slice(0, 5)}`}`;
 }
 
-function scorePeriods(periods: PeriodFigures[], key: Record<string, Record<string, number>>): Score {
-  const score: Score = { expected: 0, correct: 0, wrong: [], missing: [] };
-  for (const [label, items] of Object.entries(key)) {
-    // `statement|period end|months`, and `|basis` in an exported key (where both bases may be read).
-    const [statement, end, monthsText, basis] = label.split('|') as [keyof typeof SECTION, string, string, string | undefined];
-    const months = Number(monthsText);
-    for (const [item, expected] of Object.entries(items)) {
-      score.expected += 1;
-      const found = periods
-        .filter((period) => period.periodEnd === end && (months === 0 ? true : period.months === months) && (!basis || period.basis === basis))
-        .map((period) => period[SECTION[statement]][item])
-        .find((figure) => figure);
-      if (!found) score.missing.push(`${label} ${item} (expected ${format(expected)})`);
-      else if (Math.abs(found.value - expected) <= Math.max(Math.abs(expected) * 1e-9, 0.005)) score.correct += 1;
-      else score.wrong.push(`${label} ${item}: expected ${format(expected)}, got ${format(found.value)} (${found.source}${found.formula ? `: ${found.formula}` : ''})`);
-    }
-  }
-  return score;
-}
-
-function countFigures(periods: PeriodFigures[]): { reported: number; derived: number; empty: number } {
-  const counts = { reported: 0, derived: 0, empty: 0 };
-  for (const period of periods) {
-    for (const section of [period.income, period.balance, period.cashFlow, period.ratios]) {
-      for (const figure of Object.values(section)) {
-        if (!figure) counts.empty += 1;
-        else if (figure.source === 'reported') counts.reported += 1;
-        else counts.derived += 1;
-      }
-    }
-  }
-  return counts;
-}
-
 function detail(sample: Sample, id: string, result: FilingResult, score: Score | null): string {
   const lines = [`### ${sample.symbol} ${sample.reportType} ${sample.periodEnded} (${id})`, ''];
   lines.push(`Stages (ms): ${Object.entries(result.timings).map(([name, ms]) => `${name} ${ms}`).join(', ')}.`, '');
@@ -192,10 +148,6 @@ function detail(sample: Sample, id: string, result: FilingResult, score: Score |
     }
   }
   return `${lines.join('\n')}\n`;
-}
-
-function format(value: number): string {
-  return Math.abs(value) < 1_000 ? String(value) : value.toLocaleString('en-US');
 }
 
 main().catch((error: unknown) => {
