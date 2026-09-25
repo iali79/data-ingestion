@@ -3,13 +3,13 @@ import path from 'node:path';
 import type { Statement } from '../financials/definitions.js';
 import { buildPeriods, type PeriodFigures, type PriceLookup, type ReportedValue } from '../financials/derive.js';
 import { analysePdf, ocrWholePages, type DocumentAnalysis } from './analyse.js';
-import { classifyPages, type Classification } from './classify.js';
+import { classifyPages, type Classification, type SelectedStatement } from './classify.js';
 import { applyPageHints, applyUnitHint, readHints } from './hints.js';
 import { matchRows, normalizeLabel } from './labels.js';
 import { buildStatementTable, type StatementTable } from './normalize.js';
 import { readNotes } from './notes.js';
 import { subsetPages } from './subset.js';
-import { extractTables, type TableExtraction } from './tables.js';
+import { extractTables, type PageTables, type TableExtraction } from './tables.js';
 import { applyChecks, confirmTotals, valuesFromMatches, type Drop } from './validate.js';
 import { buildConstraints, ratioProblems } from './constraints.js';
 import { cellKey, cellValue, residual, type CellRef, type Correction, type Reading } from './constraint-types.js';
@@ -91,19 +91,8 @@ export async function extractFilingFinancials(
   const tables: TableExtraction = await time('tables', () => extractTables(subset, workDir));
   await writeJson(workDir, 'tables.json', tables);
 
-  // The balance sheet first: its comparative column gives the financial year-end, which dates
-  // interim columns that do not print their length (rule C7).
-  const ordered = [...classification.statements].sort((a, b) => Number(b.statementType === 'balance_sheet') - Number(a.statementType === 'balance_sheet'));
-  let yearEndMonthDay: string | null = null;
-  const statementTables: StatementTable[] = [];
   const drops: Drop[] = [];
-  for (const statement of ordered) {
-    const table = buildStatementTable(statement, tables.pages, { periodEnded: filing.periodEnded, yearEndMonthDay });
-    if (statement.hinted) table.problems.push(`pages ${statement.pages.join('+')} from an admin hint`);
-    if (statement.statementType === 'balance_sheet' && !yearEndMonthDay) yearEndMonthDay = financialYearEnd(table);
-    statementTables.push(table);
-  }
-  inheritUnits(statementTables);
+  const statementTables = buildStatements(classification.statements, tables.pages, filing, analysis);
   applyUnitHint(statementTables, hints);
   const verified = await time('verify', () =>
     verifyStatements(statementTables, drops, (suspect, cells) => rereadCells(pdf, analysis, suspect, cells, path.join(workDir, 'reread'))),
@@ -122,6 +111,44 @@ export async function extractFilingFinancials(
   const evidencePages = [...new Set(values.map((value) => value.page).filter((page): page is number => page !== null))].sort((a, b) => a - b);
   const evidence = evidencePages.map((pageNumber) => pageEvidence(pageNumber, analysis, statementTables));
   return { periods, evidence, analysis, classification, statements: summaries, drops, corrections, unresolved, plausibility, timings };
+}
+
+/**
+ * Stage 5 for every selected statement, in the order production needs: the balance sheet first,
+ * since its comparative column gives the financial year-end, which dates interim columns that do
+ * not print their length (rule C7); then rule U1 across the filing. An admin unit hint (rule H3) is
+ * not applied here: the caller applies it after. Production (`extractFilingFinancials`) and the
+ * offline replay's `--rebuild` (`replay.ts`) call this one function, so a stage 5 change measured
+ * on the corpus is the change production makes.
+ *
+ * `analysis` gives the native pages' text layer, from which rule R4c rebuilds rows the table
+ * model fused or shifted; a scanned page has none.
+ */
+export function buildStatements(
+  statements: SelectedStatement[],
+  pages: PageTables[],
+  filing: { periodEnded: string },
+  analysis: DocumentAnalysis | null,
+): StatementTable[] {
+  const ordered = [...statements].sort((a, b) => Number(b.statementType === 'balance_sheet') - Number(a.statementType === 'balance_sheet'));
+  let yearEndMonthDay: string | null = null;
+  const out: StatementTable[] = [];
+  for (const statement of ordered) {
+    const table = buildStatementTable(statement, pages, { periodEnded: filing.periodEnded, yearEndMonthDay }, layoutText(analysis));
+    if (statement.hinted) table.problems.push(`pages ${statement.pages.join('+')} from an admin hint`);
+    if (statement.statementType === 'balance_sheet' && !yearEndMonthDay) yearEndMonthDay = financialYearEnd(table);
+    out.push(table);
+  }
+  inheritUnits(out);
+  return out;
+}
+
+/** A native page's `pdftotext -layout` text, by page number; null for a scanned or blank page. */
+function layoutText(analysis: DocumentAnalysis | null): (page: number) => string | null {
+  return (page) => {
+    const found = analysis?.pages[page - 1];
+    return found && found.kind === 'native' && found.textSource === 'pdftotext' ? found.text : null;
+  };
 }
 
 /**
