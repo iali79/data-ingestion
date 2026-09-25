@@ -11,7 +11,7 @@ import { readNotes } from './notes.js';
 import { subsetPages } from './subset.js';
 import { extractTables, type TableExtraction } from './tables.js';
 import { applyChecks, confirmTotals, valuesFromMatches, type Drop } from './validate.js';
-import { buildConstraints } from './constraints.js';
+import { buildConstraints, ratioProblems } from './constraints.js';
 import { cellKey, cellValue, residual, type CellRef, type Correction, type Reading } from './constraint-types.js';
 import { applyCorrections, repairCells, type RepairResult } from './repair.js';
 import { rereadCells } from './reread.js';
@@ -35,6 +35,8 @@ export interface FilingResult {
   corrections: Correction[];
   /** Failing relations the repair stage could not prove a correction for. */
   unresolved: RepairResult['unresolved'];
+  /** Plausibility problems (S1-S9) of the delivered periods, for review. */
+  plausibility: string[];
   timings: Record<string, number>;
 }
 
@@ -114,16 +116,19 @@ export async function extractFilingFinancials(
   await writeJson(workDir, 'validation.json', { drops, values, corrections, unresolved });
 
   const periods = buildPeriods(values, price);
+  // S1-S9: plausibility of the delivered figures. Never proof and never a reason to drop (a small
+  // profit under minimum tax, a bonus issue restating EPS are real); recorded for review.
+  const plausibility = periods.flatMap((period) => ratioProblems(period).map((problem) => `${period.periodEnd}/${period.months} ${period.basis}: ${problem}`));
   const evidencePages = [...new Set(values.map((value) => value.page).filter((page): page is number => page !== null))].sort((a, b) => a - b);
   const evidence = evidencePages.map((pageNumber) => pageEvidence(pageNumber, analysis, statementTables));
-  return { periods, evidence, analysis, classification, statements: summaries, drops, corrections, unresolved, timings };
+  return { periods, evidence, analysis, classification, statements: summaries, drops, corrections, unresolved, plausibility, timings };
 }
 
 /**
  * Stage 6 over a filing's statement tables, from the built tables onward: label rules (R1-R5),
- * table arithmetic (A1), reported values with the printed cell each came from, then the
- * identities, the balance-sheet equality, the cross-statement tie and the OCR rule (I1-F5, B5, X1,
- * V5) on the deduplicated values. Pure: it reads only the tables, and records every removal in
+ * table arithmetic (A1), reported values with the printed cell each came from, then every relation
+ * of constraints.ts and the delivery rule (I1-I5, B1-B5, F4-F5, X1-X5, E1, V6) on the deduplicated
+ * values. Pure: it reads only the tables, and records every removal in
  * `drops`. Production (`extractFilingFinancials`) and the offline replay (`replay.ts`, which feeds
  * it the `statements.json` tables a run saved) call this one function, so a figure the replay
  * counts is a figure production would deliver from the same tables.

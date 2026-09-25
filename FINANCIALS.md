@@ -7,7 +7,7 @@ What the ingest webhook receives for each filing. Generated from `src/financials
   "schemaVersion": 2,
   "taskId": "1234",
   "leaseToken": "<the lease token from the claim>",
-  "extractorVersion": 5,
+  "extractorVersion": 7,
   "outcome": "extracted",
   "document": { "kind": "pdf", "pageCount": 114, "pagesRead": 7, "nativePages": 7, "scannedPages": 0 },
   "periods": [
@@ -33,11 +33,14 @@ What the ingest webhook receives for each filing. Generated from `src/financials
 - **Every key below is present in every period**, as `{ value, source: "reported", page, text, checks }`,
   `{ value, source: "derived", formula }`, `{ value: 0, source: "runtime", formula }` (market-based:
   the server calculates it from the day's close), or `null` (not printed and not derivable).
-- `log` is what each stage did (timings, pages kept, statements read, values dropped and why), for
-  the admin panel's history. It holds labels and reasons, never page text.
+- `log` is what each stage did (timings, pages kept, statements read, values dropped and why,
+  cells corrected by R7 with the relations that prove them, relations still failing, plausibility
+  warnings S1-S9), for the admin panel's history. It holds labels and reasons, never page text.
 - `checks` lists the rules that confirmed a printed figure (RULEBOOK.md): `A1` its table adds up,
-  `I1`/`I2`/`B4`/`B5`/`F4`/`F5` an accounting identity holds, `X1`/`X2` it agrees with another
-  statement. A figure read by OCR is only ever delivered with at least one check.
+  `I1`-`I5`/`B1`-`B5`/`F4`/`F5` an accounting identity holds, `X1`-`X5` it agrees with another
+  statement, `E1` EPS agrees with profit across columns. **Every reported figure is delivered with at
+  least one check (V6)**; a figure no arithmetic confirms is null. A figure whose first reading was
+  corrected also lists `R7 corrected from <first reading>: <the misread>`.
 - `periodType`: `annual` (12 months), `nine_months`, `half_year`, `quarter` (3 months), or
   `balance_sheet_date` for a balance-sheet column with no flows of its own. A filing's comparative
   columns are separate periods.

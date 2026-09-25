@@ -7,7 +7,7 @@
  */
 export interface Rule {
   id: string;
-  stage: 'classify' | 'tables' | 'normalize' | 'labels' | 'validate' | 'notes' | 'derive';
+  stage: 'classify' | 'tables' | 'normalize' | 'labels' | 'verify' | 'validate' | 'notes' | 'derive';
   text: string;
   /** Where and how the code enforces it. */
   enforced: string;
@@ -21,7 +21,8 @@ export const RULES: Rule[] = [
   { id: 'P4', stage: 'classify', text: 'A note is the one the balance sheet cites by number ("Stock-in-trade 9" -> note 9); without a citation only a whole-numbered heading counts (2.3 is an accounting policy, not a note).', enforced: 'noteReferences and noteHeading in classify.ts.' },
   // --- reading tables ---------------------------------------------------------------------------
   { id: 'T1', stage: 'tables', text: 'A native page is read from its text layer; a scanned page is read from its image by OCR, never from a partial text overlay.', enforced: 'subset.ts renders scanned pages to 300 dpi images; docstage OCRs only those.' },
-  { id: 'V1', stage: 'normalize', text: 'A figure is taken only from a printed table cell. Nothing is typed, estimated or completed.', enforced: 'parseFigure: an unreadable cell is null, never repaired beyond trimming OCR residue.' },
+  { id: 'V1', stage: 'normalize', text: 'A figure is taken only from a printed table cell. Nothing is typed, estimated or completed; the only correction is R7, a misread the arithmetic proves.', enforced: 'parseFigure: an unreadable cell is null; repair.ts is the only place a reading is replaced.' },
+  { id: 'V1b', stage: 'normalize', text: 'A cell holding two figures ("8 45,533,482", "- 1,289": two printed lines fused, or a digit lost from a group) is unreadable. The figures are never glued into one number.', enforced: 'fusedFigures in normalize.ts.' },
   { id: 'V2', stage: 'normalize', text: 'A dash or "Nil" in a value column means nil (zero).', enforced: 'parseFigure.' },
   { id: 'V3', stage: 'normalize', text: 'Figures in brackets are negative, including one whose opening or closing bracket OCR lost; so is a figure after a minus sign (hyphen or U+2212).', enforced: 'parseFigure.' },
   { id: 'V4', stage: 'normalize', text: 'The note column holds references, not values.', enforced: 'columnLayout sets the note column aside.' },
@@ -35,6 +36,7 @@ export const RULES: Rule[] = [
   { id: 'C5', stage: 'normalize', text: 'Where a header prints only the year, the date and length come from the statement title ("For the year ended December 31, 2023").', enforced: 'describeColumns.' },
   { id: 'C6', stage: 'normalize', text: 'Two value columns never describe the same period; if they do, neither is used.', enforced: 'describeColumns.' },
   { id: 'C7', stage: 'normalize', text: 'An interim column that does not print its length covers the months since the financial year-end, read from the balance sheet’s comparative column.', enforced: 'monthsSince in conventions.ts.' },
+  { id: 'C9', stage: 'normalize', text: 'A header naming two lengths ("Year Ended Quarter", two spanning headers merged) gives its column no length; and when any column prints its own length, a column that prints none is not given one from the title or the year-end (a half-year filing\u2019s quarter columns would otherwise read as six months).', enforced: 'describeColumns and periodPhrases in normalize.ts.' },
   { id: 'C8', stage: 'normalize', text: 'In an annual filing, a column that prints only its year ends at the financial year-end (from the balance sheet) and covers 12 months. Never applied to interim filings.', enforced: 'describeColumns.' },
   // --- labels -------------------------------------------------------------------------------------
   { id: 'R1', stage: 'labels', text: 'A row is an item only when its printed label matches that item’s wording. Similar is not enough: reserves are not retained earnings, intangible assets are not goodwill. Unmatched rows are reported, not guessed.', enforced: 'LABEL_RULES in labels.ts, specific wording first.' },
@@ -50,18 +52,32 @@ export const RULES: Rule[] = [
   // --- units and signs ----------------------------------------------------------------------------
   { id: 'U1', stage: 'normalize', text: 'Figures are scaled by the unit the page states ("Rupees in ’000" is x1,000). A statement that prints no unit takes the unit of the filing\u2019s other statements when they all agree.', enforced: 'unitFromText over the header, title and first rows; inheritUnits in filing.ts.' },
   { id: 'U2', stage: 'validate', text: 'Earnings per share is rupees per share and is never scaled.', enforced: 'PER_SHARE.' },
-  { id: 'U3', stage: 'validate', text: 'Income-statement expenses are delivered as positive amounts, except a tax credit, which I2 shows to be one and which is delivered negative; cash flow figures keep their printed sign.', enforced: 'EXPENSES; I2 in validate.ts reverses a confirmed tax credit.' },
+  { id: 'U3', stage: 'validate', text: 'Income-statement expenses are delivered as positive amounts, except a tax or levy credit, which I2 or I4 shows to be one and which is delivered negative; cash flow figures keep their printed sign.', enforced: 'EXPENSES; applyChecks delivers a credit negative when its identity holds only with the credit sign.' },
   { id: 'U4', stage: 'validate', text: 'Items that cannot be negative (revenue, total assets, cash, proceeds from selling assets or investments, ...) are dropped when read negative.', enforced: 'NON_NEGATIVE.' },
   // --- checks -------------------------------------------------------------------------------------
-  { id: 'A1', stage: 'validate', text: 'Every printed total must equal the rows above it, column by column (to rounding). Rows in a sum that adds up are confirmed.', enforced: 'confirmTotals; the confirming total is listed in the figure’s checks.' },
-  { id: 'I1', stage: 'validate', text: 'Revenue - cost of sales = gross profit.', enforced: 'IDENTITIES; on failure all three are dropped.' },
-  { id: 'I2', stage: 'validate', text: 'Profit before tax - taxation = profit after tax.', enforced: 'IDENTITIES; on failure all three are dropped.' },
-  { id: 'B4', stage: 'validate', text: 'Current + non-current assets = total assets.', enforced: 'IDENTITIES.' },
-  { id: 'B5', stage: 'validate', text: 'Total assets = the printed total equity and liabilities.', enforced: 'applyChecks.' },
-  { id: 'F4', stage: 'validate', text: 'Operating + investing + financing cash flows = net change in cash.', enforced: 'IDENTITIES.' },
-  { id: 'F5', stage: 'validate', text: 'Opening cash + net change (+ exchange differences) = closing cash.', enforced: 'IDENTITIES.' },
-  { id: 'X1', stage: 'validate', text: 'The cash flow’s profit before tax equals the income statement’s for the same period (recorded as a confirmation; a difference is reported, since levies can sit between them).', enforced: 'applyChecks.' },
-  { id: 'V5', stage: 'validate', text: 'A figure read by OCR is delivered only when at least one check (A1, an identity, B5, X1) confirms it.', enforced: 'applyChecks.' },
+  { id: 'A1', stage: 'validate', text: 'Every printed total must equal the rows above it, column by column (to rounding). Rows in a sum that adds up are confirmed. A run of rows found to add up in one column is also checked in every other kept column, so a total with one misread component is caught, not just left unconfirmed.', enforced: 'confirmTotals; A1 constraints in constraints.ts; the confirming total is listed in the figure\u2019s checks.' },
+  { id: 'I1', stage: 'validate', text: 'Revenue - cost of sales = gross profit.', enforced: 'constraints.ts; on failure all three are dropped.' },
+  { id: 'I2', stage: 'validate', text: 'Profit before tax - taxation = profit after tax (a tax credit adds).', enforced: 'constraints.ts; on failure all three are dropped.' },
+  { id: 'I3', stage: 'validate', text: 'Profit attributable to owners + to non-controlling interest = profit after tax.', enforced: 'constraints.ts.' },
+  { id: 'I4', stage: 'validate', text: 'Levies: profit before levies and income tax - levies = profit before income tax (levies above profit before tax), or profit before tax - levies - taxation = profit after tax (levies below it). Only when every row between is a levy line.', enforced: 'constraints.ts.' },
+  { id: 'I5', stage: 'validate', text: 'Gross profit - distribution - administrative - other operating expenses + other income = operating profit, only when those are exactly the rows printed between the two.', enforced: 'constraints.ts.' },
+  { id: 'B1', stage: 'validate', text: 'Total assets = total equity + total liabilities.', enforced: 'constraints.ts.' },
+  { id: 'B2', stage: 'validate', text: 'Current + non-current liabilities = total liabilities.', enforced: 'constraints.ts.' },
+  { id: 'B3', stage: 'validate', text: 'Equity attributable to owners + non-controlling interest = total equity.', enforced: 'constraints.ts.' },
+  { id: 'B4', stage: 'validate', text: 'Current + non-current assets = total assets.', enforced: 'constraints.ts.' },
+  { id: 'B5', stage: 'validate', text: 'Total assets = the printed total equity and liabilities.', enforced: 'constraints.ts.' },
+  { id: 'F4', stage: 'validate', text: 'Operating + investing + financing cash flows = net change in cash.', enforced: 'constraints.ts.' },
+  { id: 'F5', stage: 'validate', text: 'Opening cash + net change (+ exchange differences) = closing cash.', enforced: 'constraints.ts.' },
+  { id: 'X1', stage: 'validate', text: 'The cash flow\u2019s profit before tax equals the income statement\u2019s for the same period (a confirmation when it holds; a difference drops nothing, since levies can sit between them).', enforced: 'constraints.ts, advisory.' },
+  { id: 'X3', stage: 'validate', text: 'A cash flow that starts from profit after tax starts from the income statement\u2019s.', enforced: 'constraints.ts.' },
+  { id: 'X4', stage: 'validate', text: 'The cash flow\u2019s closing cash equals the balance sheet\u2019s cash (or cash less short-term borrowings and overdrafts, whichever the filing uses).', enforced: 'constraints.ts; advisory when neither form holds.' },
+  { id: 'X5', stage: 'validate', text: 'The same item printed in two tables of the same statement, basis and period agrees.', enforced: 'constraints.ts.' },
+  { id: 'E1', stage: 'validate', text: 'Earnings per share: profit attributable to owners over EPS gives the same share count in every column of the statement (to EPS rounding). EPS below 0.10 is too coarse to check.', enforced: 'confirmEps in validate.ts.' },
+  { id: 'Adv', stage: 'validate', text: 'An identity is advisory (a failure drops nothing) when the statement prints a line it leaves out: assets held for sale, cash from an amalgamation, an IFRS 9 adjustment, a discontinued operation.', enforced: 'constraints.ts marks it advisory.' },
+  { id: 'V6', stage: 'validate', text: 'A figure is delivered only when at least one relation above confirms it, whether it was read from a text layer or by OCR. A figure no arithmetic touches is not verified and is not delivered.', enforced: 'applyChecks.' },
+  // --- verify and repair ------------------------------------------------------------------------------
+  { id: 'R7', stage: 'verify', text: 'A failing relation means a misread cell. Its cells get a second, independent reading (the page\u2019s text layer, or a 300 dpi OCR of a scanned page). A reading is replaced only by a plausible misread of the printed text (one OCR digit confusion, a lost bracket, a dropped or extra digit, a comma read as a point, one figure of two fused) or by the second reading, and only when: every relation containing the cell then holds; two independent relations are closed by it, or one and the second reading agrees; no other correction would do; and nothing that held before breaks.', enforced: 'repair.ts (R7a-R7g); the figure\u2019s checks list "R7 corrected from" the first reading.' },
+  { id: 'S1-S9', stage: 'derive', text: 'Plausibility (gross margin at most 100%, parts within their totals, EPS x shares near profit, ...) is reported for review in the log, never used to drop or repair: minimum tax and bonus issues make real exceptions.', enforced: 'ratioProblems in constraints.ts.' },
   // --- notes --------------------------------------------------------------------------------------
   { id: 'X2', stage: 'notes', text: 'The inventory split (raw material, work-in-process, finished goods) is delivered only when the note’s lines add up to its total and that total equals the balance sheet’s stock-in-trade.', enforced: 'reconcile in notes.ts.' },
   // --- calculation --------------------------------------------------------------------------------

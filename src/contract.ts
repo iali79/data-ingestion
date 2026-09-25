@@ -11,7 +11,7 @@ import type { ExtractionErrorCode } from './errors.js';
 import type { CorporateActionCandidate, ConsolidationBasis, ParsedStatementLine, StatementType } from './parser.js';
 
 export const SCHEMA_VERSION = 1;
-export const EXTRACTOR_VERSION = 6;
+export const EXTRACTOR_VERSION = 7;
 
 export const LIMITS = {
   lines: 400,
