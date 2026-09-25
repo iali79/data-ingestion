@@ -5,7 +5,9 @@ import { buildPeriods, type PeriodFigures, type ReportedValue } from './financia
 import { runCommand } from './extraction.js';
 import type { DocumentAnalysis, PageAnalysis } from './pipeline/analyse.js';
 import type { Classification } from './pipeline/classify.js';
-import { validateStatements, type StatementSummary } from './pipeline/filing.js';
+import { verifyStatements, type Rereader, type StatementSummary } from './pipeline/filing.js';
+import type { Correction } from './pipeline/constraint-types.js';
+import { rereadCells } from './pipeline/reread.js';
 import { normalizeLabel } from './pipeline/labels.js';
 import type { StatementRow, StatementTable } from './pipeline/normalize.js';
 import { readNotes } from './pipeline/notes.js';
@@ -120,6 +122,9 @@ export interface FilingMetrics extends FilingMeta {
   recorded: { values: number | null; drops: number | null; reported: number | null };
   failures: CrossColumnFailure[];
   dropList: Drop[];
+  /** Cells the repair stage corrected, and relations it could not settle. */
+  corrections: Correction[];
+  unresolved: Array<{ constraint: string; reason: string }>;
 }
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -316,6 +321,8 @@ export interface Replayed {
   drops: Drop[];
   periods: PeriodFigures[];
   tables: StatementTable[];
+  corrections: Correction[];
+  unresolved: Array<{ constraint: string; reason: string }>;
 }
 
 /** Stage 6 onward for one saved filing, as extractFilingFinancials runs it. */
@@ -324,12 +331,20 @@ export async function replayFiling(dir: string): Promise<Replayed | null> {
   if (!saved || !Array.isArray(saved.tables)) return null;
   const tables = saved.tables.map(uniqueRowIds);
   const drops: Drop[] = [];
-  const { values, summaries } = validateStatements(tables, drops);
+  const analysis = await replayAnalysis(dir);
+  // The second reading offline: the text layer of native pages. Scanned pages would need
+  // tesseract, which the replay does not run, so they get no second reading here.
+  const reread: Rereader = async (suspect, cells) => {
+    const native = cells.filter((cell) => analysis.pages[(suspect[cell.table]?.rows.find((row) => row.id === cell.row)?.page ?? 0) - 1]?.kind === 'native');
+    return native.length ? rereadCells(path.join(dir, 'source.pdf'), analysis, suspect, native, dir, { maxOcrPages: 0 }) : new Map();
+  };
+  const verified = await verifyStatements(tables, drops, reread);
+  const { values, summaries, corrections, unresolved } = verified;
   const classification = await readJson<Classification>(path.join(dir, 'classification.json'));
   const pages = (await readJson<TableExtraction>(path.join(dir, 'tables.json')))?.pages ?? [];
-  const notes = classification ? readNotes(classification.notes, pages, await replayAnalysis(dir), tables, values, drops) : [];
+  const notes = classification ? readNotes(classification.notes, pages, analysis, verified.tables, values, drops) : [];
   const periods = buildPeriods([...values, ...notes], () => null);
-  return { values, notes, summaries, drops, periods, tables };
+  return { values, notes, summaries, drops, periods, tables: verified.tables, corrections, unresolved };
 }
 
 /**
@@ -431,6 +446,8 @@ export async function measureFiling(filing: FilingDir, answers: AnswerKey): Prom
     },
     failures,
     dropList: drops,
+    corrections: replayed.corrections,
+    unresolved: replayed.unresolved,
   };
 }
 

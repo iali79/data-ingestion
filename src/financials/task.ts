@@ -31,6 +31,10 @@ export interface FinancialsLog {
     problems: string[];
   }>;
   drops: Array<{ item: string; reason: string }>;
+  /** Cells the repair stage (R7) corrected: the reading replaced, the value proven, and the relations that prove it. */
+  repairs: Array<{ cell: string; from: number | null; to: number; how: string; proof: string[] }>;
+  /** Relations that still fail after repair, and why no correction was proven. */
+  unresolved: Array<{ constraint: string; reason: string }>;
 }
 
 interface Envelope {
@@ -102,5 +106,13 @@ export function financialsLog(result: FilingResult): FinancialsLog {
       problems: statement.problems.slice(0, 10).map((problem) => problem.slice(0, 200)),
     })),
     drops: result.drops.slice(0, 200).map((drop) => ({ item: drop.item.slice(0, 120), reason: drop.reason.slice(0, 200) })),
+    repairs: result.corrections.slice(0, 100).map((fix) => ({
+      cell: `${fix.cell.row} column ${fix.cell.column + 1}`.slice(0, 60),
+      from: fix.from,
+      to: fix.to,
+      how: fix.how.slice(0, 120),
+      proof: fix.proof.slice(0, 8).map((id) => id.slice(0, 80)),
+    })),
+    unresolved: result.unresolved.slice(0, 50).map((item) => ({ constraint: item.constraint.slice(0, 120), reason: item.reason.slice(0, 200) })),
   };
 }
