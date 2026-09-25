@@ -86,12 +86,12 @@ describe('validateStatements (the pure stage 6 production and replay share)', ()
     ]);
   });
 
-  it('drops an OCR figure no check confirms (V5) and records why', () => {
+  it('drops an OCR figure no check confirms (V6) and records why', () => {
     const drops: Drop[] = [];
     const ocr = table([row('p3.r1', 'Administrative expenses', ['(100)', '(90)'], true, 3)]);
     const { values } = validateStatements([ocr], drops);
     expect(values).toEqual([]);
-    expect(drops.map(dropRule)).toEqual(['V5', 'V5']);
+    expect(drops.map(dropRule)).toEqual(['V6', 'V6']);
   });
 });
 

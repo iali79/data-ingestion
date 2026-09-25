@@ -322,7 +322,7 @@ export interface Replayed {
 export async function replayFiling(dir: string): Promise<Replayed | null> {
   const saved = await readJson<{ tables: StatementTable[] }>(path.join(dir, 'statements.json'));
   if (!saved || !Array.isArray(saved.tables)) return null;
-  const tables = saved.tables;
+  const tables = saved.tables.map(uniqueRowIds);
   const drops: Drop[] = [];
   const { values, summaries } = validateStatements(tables, drops);
   const classification = await readJson<Classification>(path.join(dir, 'classification.json'));
@@ -330,6 +330,21 @@ export async function replayFiling(dir: string): Promise<Replayed | null> {
   const notes = classification ? readNotes(classification.notes, pages, await replayAnalysis(dir), tables, values, drops) : [];
   const periods = buildPeriods([...values, ...notes], () => null);
   return { values, notes, summaries, drops, periods, tables };
+}
+
+/**
+ * Tables saved before row ids were made unique within a statement (normalize.ts: the second table
+ * on a page numbers its rows `p{page}.t{n}.r{row}`) repeat ids across a side-by-side page's
+ * halves. The same renaming is applied here, so old artifacts replay as today's code builds them.
+ */
+export function uniqueRowIds(table: StatementTable): StatementTable {
+  const seen = new Map<string, number>();
+  const rows = table.rows.map((row) => {
+    const count = seen.get(row.id) ?? 0;
+    seen.set(row.id, count + 1);
+    return count === 0 ? row : { ...row, id: row.id.replace(/^p(\d+)\./u, `p$1.t${count}.`) };
+  });
+  return { ...table, rows };
 }
 
 async function filingMeta(filing: FilingDir): Promise<FilingMeta> {

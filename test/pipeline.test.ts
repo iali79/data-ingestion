@@ -433,14 +433,44 @@ describe('validation', () => {
     expect(run(['(1,000)', '(200)', '(800)'])).toEqual({ profit_before_tax: -1_000_000, taxation: -200_000, profit_after_tax: -800_000 });
   });
 
-  it('delivers an OCR figure only when a check confirms it (V5)', () => {
+  it('delivers an OCR figure only when a check confirms it (V6)', () => {
     const rows = [row('s', 'Sales - net', ['3,762,793,904'], [], true), row('c', 'Cost of sales', ['(3,658,075,471)'], [], true), row('f', 'Finance cost', ['(108,547,214)'], [], true)];
     const t = { ...table(rows), method: 'docling-ocr' as const, unitScale: 1 };
     const drops: Drop[] = [];
     const values = valuesFromMatches('income', t, matchRows('income', rows).matches, confirmTotals(t), drops);
     const kept = applyChecks(values, [t], drops);
     expect(kept).toEqual([]);
-    expect(drops.every((drop) => drop.reason.startsWith('V5'))).toBe(true);
+    expect(drops.every((drop) => drop.reason.startsWith('V6'))).toBe(true);
+  });
+
+  it('drops a native figure no check confirms too, and keeps the ones a sum confirms (V6)', () => {
+    const rows = [row('s', 'Revenue', ['1,000']), row('c', 'Cost of sales', ['(600)']), row('g', 'Gross profit', ['400']), row('f', 'Finance cost', ['(50)'])];
+    const t = table(rows);
+    const drops: Drop[] = [];
+    const kept = applyChecks(valuesFromMatches('income', t, matchRows('income', rows).matches, confirmTotals(t), drops), [t], drops);
+    expect(kept.map((value) => value.key).sort()).toEqual(['cost_of_sales', 'gross_profit', 'revenue']);
+    expect(drops).toEqual([{ item: 'finance_cost', reason: 'V6: no check confirms it (2023-12-31/12)' }]);
+  });
+
+  it('confirms EPS when every column implies the same share count (E1), and not otherwise', () => {
+    const run = (eps: [string, string]) => {
+      const rows = [
+        row('b', 'Profit before taxation', ['1,000', '800']),
+        row('t', 'Taxation', ['(300)', '(240)']),
+        row('a', 'Profit for the year', ['700', '560']),
+        row('e', 'Earnings per share - basic and diluted', eps),
+      ];
+      const t = { ...table(rows), columns: [
+        { index: 0, header: '2023', periodEnd: '2023-12-31', months: 12, kept: true },
+        { index: 1, header: '2022', periodEnd: '2022-12-31', months: 12, kept: true },
+      ] };
+      const drops: Drop[] = [];
+      return applyChecks(valuesFromMatches('income', t, matchRows('income', rows).matches, new Map(), drops), [t], drops).filter((value) => value.key === 'eps_basic');
+    };
+    // 700,000 / 7.00 = 100,000 shares and 560,000 / 5.60 = 100,000 shares.
+    expect(run(['7.00', '5.60']).map((value) => value.checks)).toEqual([['E1 same share count in every column'], ['E1 same share count in every column']]);
+    // 5.60 misread as 8.60: the columns no longer agree, so neither EPS is delivered.
+    expect(run(['7.00', '8.60'])).toEqual([]);
   });
 
   it('drops negative sale proceeds, a misprint or a shifted row (U4)', () => {
