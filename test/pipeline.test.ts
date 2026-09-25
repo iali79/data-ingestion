@@ -363,6 +363,12 @@ describe('columns and figures', () => {
     expect(parseFigure('(5.48)')).toBe(-5.48);
     expect(parseFigure('1,244,944,640||')).toBe(1_244_944_640);
     expect(parseFigure('28,661,326,')).toBe(28_661_326);
+    // Two figures fused into one cell are unreadable, never glued into a third number.
+    expect(parseFigure('8 45,533,482')).toBeNull();
+    expect(parseFigure('- 1,289')).toBeNull();
+    expect(parseFigure('3 6,279')).toBeNull();
+    expect(parseFigure('( 18,320,291 )')).toBe(-18_320_291);
+    expect(parseFigure('( 18,320,291)')).toBe(-18_320_291);
     expect(parseFigure('(1;748,793,503)')).toBe(-1_748_793_503);
     expect(parseFigure('§94;104,443')).toBe(94_104_443);
     expect(parseFigure('2,48O,000')).toBeNull();

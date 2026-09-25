@@ -30,7 +30,7 @@ export interface Drop {
 
 /** Labels of rows that close a running total. Uncaptioned rows are totals too. */
 export const TOTAL_LABEL =
-  /^(?:total\b|gross\b|operating \(?(?:profit|loss)|.*\b(?:profit|loss)\)?(?: \/ \(?(?:profit|loss)\)?)? (?:before|after|for the)\b|net cash\b|net \(?(?:increase|decrease)|cash (?:generated|used|\(used in\)|from)\b.*operations$|cash and cash equivalents at (?:the )?end)/u;
+  /^(?:total\b|gross\b|operating \(?(?:profit|loss)|\(?(?:profit|loss)\)?(?: \/ \(?(?:profit|loss)\)?)? from operations$|.*\b(?:profit|loss)\)?(?: \/ \(?(?:profit|loss)\)?)? (?:before|after|for the)\b|(?:share ?holders|members)'? (?:equity|funds)$|equity attributable to (?:the )?(?:owners|equity holders|shareholders)\b|net assets$|net cash\b|net \(?(?:increase|decrease)|cash (?:generated|used|\(used in\)|from)\b.*operations$|cash and cash equivalents at (?:the )?end)/u;
 /** How far above a total its components may start. */
 export const MAX_RUN = 40;
 
@@ -110,6 +110,7 @@ export function valuesFromMatches(kind: Statement, table: StatementTable, matche
         page: row.page,
         text: evidence(row),
         cell: { table: tableIndex, row: row.id, column: column.index },
+        ...(row.repaired?.[column.index] ? { repaired: row.repaired[column.index]! } : {}),
         ...(by ? { checks: [by] } : {}),
       });
     }
