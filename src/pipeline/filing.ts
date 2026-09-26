@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Statement } from '../financials/definitions.js';
-import { buildPeriods, type PeriodFigures, type PriceLookup, type ReportedValue } from '../financials/derive.js';
+import { buildPeriods, droppedItemKeys, type PeriodFigures, type PriceLookup, type ReportedValue } from '../financials/derive.js';
 import { analysePdf, ocrWholePages, type DocumentAnalysis } from './analyse.js';
 import { classifyPages, type Classification, type SelectedStatement } from './classify.js';
 import { applyPageHints, applyUnitHint, readHints } from './hints.js';
@@ -104,7 +104,7 @@ export async function extractFilingFinancials(
   await writeJson(workDir, 'statements.json', { statements: summaries, tables: statementTables });
   await writeJson(workDir, 'validation.json', { drops, values, corrections, unresolved });
 
-  const periods = buildPeriods(values, price);
+  const periods = buildPeriods(values, price, droppedItemKeys(drops));
   // S1-S9: plausibility of the delivered figures. Never proof and never a reason to drop (a small
   // profit under minimum tax, a bonus issue restating EPS are real); recorded for review.
   const plausibility = periods.flatMap((period) => ratioProblems(period).map((problem) => `${period.periodEnd}/${period.months} ${period.basis}: ${problem}`));

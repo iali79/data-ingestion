@@ -1,7 +1,7 @@
 import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildPeriods, type PeriodFigures, type ReportedValue } from './financials/derive.js';
+import { buildPeriods, droppedItemKeys, type PeriodFigures, type ReportedValue } from './financials/derive.js';
 import { runCommand } from './extraction.js';
 import type { DocumentAnalysis, PageAnalysis } from './pipeline/analyse.js';
 import type { Classification } from './pipeline/classify.js';
@@ -364,7 +364,7 @@ export async function replayFiling(dir: string, options: ReplayOptions = {}): Pr
   const verified = await verifyStatements(tables, drops, reread);
   const { values, summaries, corrections, unresolved } = verified;
   const notes = classification ? readNotes(classification.notes, pages, analysis, verified.tables, values, drops) : [];
-  const periods = buildPeriods([...values, ...notes], () => null);
+  const periods = buildPeriods([...values, ...notes], () => null, droppedItemKeys(drops));
   return { values, notes, summaries, drops, periods, tables: verified.tables, corrections, unresolved };
 }
 
