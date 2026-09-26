@@ -88,6 +88,9 @@ const CLOSING: Record<StatementType, RegExp> = {
   cash_flow: /\bcash\s+and\s+cash\s+equivalents\s+at\s+(?:the\s+)?end\b|\bend\s+of\s+the\s+(?:year|period)\b/iu,
 };
 
+/** The assets side of a balance sheet: its totals, or a bank's bare "ASSETS" heading. */
+const ASSETS_SIDE = /\b(?:total|non[-\s]?current|current)\s+assets\b|^\s*assets\s*$/imu;
+
 const OTHER_TITLES: Array<[PageClass, RegExp]> = [
   ['comprehensive_income', /^statement\s+of\s+(?:other\s+)?comprehensive\s+income\b/iu],
   ['equity_changes', /^statement\s+of\s+changes\s+in\s+(?:shareholders['’]?\s+)?equity\b/iu],
@@ -103,7 +106,8 @@ const NOTE_TOPICS: Array<[NoteTopic, RegExp]> = [
 
 /** What may follow a statement title on its line. */
 // "and" alone: the title wraps ("STATEMENT OF PROFIT OR LOSS AND" / "OTHER COMPREHENSIVE INCOME").
-const TITLE_TAIL = /^(?:\s*$|\s*and\s*$|\s*(?:and\s+other\s+comprehensive\s+income|account|\(|for\s+the\b|as\s+(?:at|on)\b|[-–—:]|\d))/iu;
+// "[": OGDC prints "Condensed Interim Statement of Profit or Loss [unaudited]".
+const TITLE_TAIL = /^(?:\s*$|\s*and\s*$|\s*(?:and\s+other\s+comprehensive\s+income|account|[([]|for\s+the\b|as\s+(?:at|on)\b|[-–—:]|\d))/iu;
 
 /** A year header ("2025 2024"), as the top of a scanned statement shows it. */
 const YEAR_HEADER = /\b(?:19|20)\d{2}\b[^\n]{0,40}\b(?:19|20)\d{2}\b/u;
@@ -138,6 +142,7 @@ export function classifyPages(analysis: DocumentAnalysis): Classification {
     }
 
     const titles = titlesIn(segments);
+    if (titles.length === 0) titles.push(...titlesIn([undoubled(segments)]));
     const other = segments.map((segment) => OTHER_TITLES.find(([, title]) => title.test(stripPrefix(stripCompany(segment))))?.[0]).find(Boolean);
     if (titles.length === 0) {
       if (other) {
@@ -204,10 +209,14 @@ export function classifyPages(analysis: DocumentAnalysis): Classification {
  * carries a table with no title of its own.
  */
 function continuesOnto(type: StatementType, page: PageAnalysis, next: PageAnalysis): boolean {
-  if (next.kind === 'blank' || titlesIn(headingSegments(next.text)).length > 0) return false;
-  if (OTHER_TITLE.test(headingSegments(next.text).join(' '))) return false;
+  const nextHeading = headingSegments(next.text);
+  if (next.kind === 'blank' || titlesIn(nextHeading).length > 0 || titlesIn([undoubled(nextHeading)]).length > 0) return false;
+  if (OTHER_TITLE.test(nextHeading.join(' '))) return false;
   if (page.kind === 'native') {
-    return !CLOSING[type].test(page.text) && figureLines(next.text) >= MIN_FIGURE_LINES && ANCHORS[type].some((anchor) => anchor.test(next.text));
+    // A balance sheet may print equity and liabilities first (OGDC): "Total liabilities" closes it
+    // only once the assets side has been printed too.
+    const closed = CLOSING[type].test(page.text) && (type !== 'balance_sheet' || ASSETS_SIDE.test(page.text));
+    return !closed && figureLines(next.text) >= MIN_FIGURE_LINES && ANCHORS[type].some((anchor) => anchor.test(next.text));
   }
   // Scanned: only the title strips are read so far. The next page continues the statement when
   // its strip already shows figures (a table from the top) and closing captions.
@@ -321,6 +330,25 @@ function titlesIn(segments: string[]): Array<{ type: StatementType; basis: Conso
     }
   }
   return titles;
+}
+
+/**
+ * The heading read once, when the PDF prints its title twice a few points apart (UBL's consolidated
+ * statements: a wrapped side banner over the full title). pdftotext interleaves the copies, "STATEMENT
+ * OF FINANCIAL OF FINANCIAL POSITION", so no line carries the title; each word kept at its first
+ * appearance restores it. Tried only when no line carries a title, and the page must still pass the
+ * anchor and figure-line checks.
+ */
+export function undoubled(segments: string[]): string {
+  const seen = new Set<string>();
+  const words: string[] = [];
+  for (const word of segments.join(' ').split(/\s+/u)) {
+    const key = word.toLowerCase();
+    if (!word || seen.has(key)) continue;
+    seen.add(key);
+    words.push(word);
+  }
+  return words.join(' ');
 }
 
 /** The text after each "LIMITED" / "LTD" in a heading line. */

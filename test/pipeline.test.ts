@@ -52,6 +52,31 @@ describe('page classifier', () => {
     expect(types('We have audited the statement of profit or loss and other comprehensive income, and notes\n' + income)).toEqual([]);
   });
 
+  it('reads a title followed by a bracketed "[unaudited]" and one printed twice over itself', () => {
+    const types = (text: string) => classifyPages({ pageCount: 1, ms: 0, pages: [page(1, text)] }).statements.map((item) => `${item.statementType}:${item.basis}`);
+    const income = figures(['Sales - net', 'Royalty', 'Gross profit', 'Profit before taxation', 'Taxation', 'Profit for the period', 'Earnings per share']);
+    expect(types('Condensed Interim Statement of Profit or Loss [unaudited]\nFor the Quarter ended 30 September 2025\n' + income)).toEqual(['income_statement:unknown']);
+    // UBL H1 2026, p.50 as pdftotext -layout reads it.
+    const balance = figures(['Cash and balances with treasury banks', 'Advances', 'Other assets', 'TOTAL ASSETS', 'Deposits and other accounts', 'Share capital', 'Other liabilities']);
+    expect(types('CONSOLIDATED\nCONSOLIDATED       CONDENSED\n               CONDENSED INTERIM INTERIM  STATEMENT\n                                 STATEMENT OF FINANCIAL OF  FINANCIAL POSITION\n                                                       POSITION\nAS AT\nAS AT JUNE\n' + balance)).toEqual(['balance_sheet:consolidated']);
+    // Words kept once never make a title out of a page that has none.
+    expect(types('NOTES TO THE CONSOLIDATED FINANCIAL STATEMENTS\nSTATEMENT OF FINANCIAL POSITION items\n' + balance)).toEqual([]);
+  });
+
+  it('follows a balance sheet that prints equity and liabilities before its assets', () => {
+    // OGDC Q1 FY2026: p.9 ends at "TOTAL LIABILITIES", the assets are overleaf.
+    const result = classifyPages({
+      pageCount: 3,
+      ms: 0,
+      pages: [
+        page(1, 'Condensed Interim Statement of Financial Position [unaudited]\nAs at 30 September 2025\n' + figures(['Share capital', 'Reserves', 'Unappropriated profit', 'NON CURRENT LIABILITIES', 'Deferred taxation', 'CURRENT LIABILITIES', 'Trade and other payables', 'TOTAL LIABILITIES'])),
+        page(2, '                     Unaudited   Audited\n' + figures(['NON CURRENT ASSETS', 'Property, plant and equipment', 'CURRENT ASSETS', 'Trade debts', 'Cash and bank balances', 'Other receivables'])),
+        page(3, 'Condensed Interim Statement of Profit or Loss [unaudited]\n' + figures(['Sales - net', 'Royalty', 'Gross profit', 'Profit before taxation', 'Taxation', 'Profit for the period'])),
+      ],
+    });
+    expect(result.statements.map((item) => `${item.statementType}:${item.pages.join('+')}`)).toEqual(['balance_sheet:1+2', 'income_statement:3']);
+  });
+
   it('reads a title after a company name, as OCR prints a letterhead', () => {
     const scanned = classifyPages({ pageCount: 1, ms: 0, pages: [page(1, 'ADAM SUGAR MILLS LIMITED STATEMENT OF FINANCIAL POSITION\nAS AT SEPTEMBER 30, 2018\n2018 2017\nProperty, plant and equipment 6 1,814,627,166', 'scanned')] });
     expect(scanned.statements.map((item) => item.statementType)).toEqual(['balance_sheet']);
@@ -345,6 +370,25 @@ describe('columns and figures', () => {
       { periodEnded: '2023-09-30' },
     );
     expect(columns.map((column) => `${column.periodEnd}/${column.months}`)).toEqual(['2023-09-30/9', '2022-09-30/9', '2023-09-30/3', '2022-09-30/3']);
+  });
+
+  it('reads a month-range header as the period it spans (C10)', () => {
+    // UBL's half-year profit and loss prints no "months ended": every column took the title's six
+    // months, the quarter and half-year columns collided, and C6 dropped all four.
+    const columns = describeColumns(
+      ['April - June 2026', 'April - June 2025', 'January - June 2026', 'January - June 2025'],
+      'UNCONSOLIDATED CONDENSED INTERIM PROFIT AND LOSS ACCOUNT (UN-AUDITED) FOR THE SIX MONTHS ENDED JUNE 30, 2026',
+      'income',
+      { periodEnded: '2026-06-30', yearEndMonthDay: '-12-31' },
+    );
+    expect(columns.map((column) => `${column.periodEnd}/${column.months}/${column.kept}`)).toEqual([
+      '2026-06-30/3/true', '2025-06-30/3/true', '2026-06-30/6/true', '2025-06-30/6/true',
+    ]);
+    const nine = describeColumns(['Jul-Mar 2026', 'Jan-Mar 2026', 'July 2025 to June 2026'], 'Profit and loss account', 'income', { periodEnded: '2026-03-31' });
+    expect(nine.map((column) => `${column.periodEnd}/${column.months}`)).toEqual(['2026-03-31/9', '2026-03-31/3', '2026-06-30/12']);
+    // A range that disagrees with a printed phrase has no length it can be trusted for.
+    expect(describeColumns(['Quarter ended April - June 2026'], 'P&L', 'income', { periodEnded: '2026-06-30' })[0]!.months).toBe(3);
+    expect(describeColumns(['Six months January - March 2026'], 'P&L', 'income', { periodEnded: '2026-03-31' })[0]!.months).toBeNull();
   });
 
   it('takes the date and length from the title when the header prints only the year', () => {
