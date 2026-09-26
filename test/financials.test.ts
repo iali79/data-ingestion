@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPeriods, shiftMonths, type ReportedValue } from '../src/financials/derive.js';
+import { buildPeriods, droppedItemKeys, shiftMonths, type ReportedValue } from '../src/financials/derive.js';
 import { BALANCE, CASH_FLOW, CAPTIONS, INCOME, RATIOS } from '../src/financials/definitions.js';
 import { RULES } from '../src/financials/rulebook.js';
 import { buildRows, figureValue } from '../src/statements/rows.js';
@@ -127,6 +127,35 @@ describe('rulebook', () => {
   it('has a caption rule for every item the model can read', () => {
     const readable = [...INCOME, ...BALANCE, ...CASH_FLOW].filter((item) => item.read && item.from === 'statement');
     expect(readable.filter((item) => !CAPTIONS[item.key]).map((item) => item.key)).toEqual([]);
+  });
+});
+
+describe('derived sums over dropped parts', () => {
+  // SNAI 2025 annual: the borrowings were dropped as unconfirmed; total_debt was then summed from
+  // the leases and long-term debt alone and read as a 99% effective interest rate.
+  const reported: ReportedValue[] = [
+    value('income', 'revenue', '2025-06-30', 12, 5_000_000_000),
+    value('income', 'finance_cost', '2025-06-30', 12, 192_976_846),
+    value('balance', 'long_term_debt_excl_leases', '2025-06-30', 0, 147_202_521),
+    value('balance', 'lease_liabilities_non_current', '2025-06-30', 0, 11_000_168),
+  ];
+  const debtOf = (dropped: Set<string>) =>
+    buildPeriods(reported, () => null, dropped).find((period) => period.months === 0 || period.periodEnd === '2025-06-30')!;
+
+  it('leaves a total empty when a part was printed but dropped, directly or through a nested sum', () => {
+    const period = debtOf(droppedItemKeys([{ item: 'short_term_borrowings' }]));
+    expect(period.balance.short_term_debt).toBeNull();
+    expect(period.balance.total_debt).toBeNull();
+    expect(period.ratios.effective_interest_rate ?? null).toBeNull();
+  });
+
+  it('still sums the parts that exist when nothing was dropped', () => {
+    const period = debtOf(new Set());
+    expect(period.balance.total_debt?.value).toBe(158_202_689);
+  });
+
+  it('reads constraint drops, which list their inputs as a/b', () => {
+    expect([...droppedItemKeys([{ item: 'short_term_borrowings/total_debt' }, { item: 'inventory split' }])]).toEqual(['short_term_borrowings', 'total_debt', 'inventory split']);
   });
 });
 

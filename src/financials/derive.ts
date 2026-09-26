@@ -69,7 +69,22 @@ export interface ReportedValue {
 
 export type PriceLookup = (date: string) => { close: number; date: string; source: string } | null;
 
-export function buildPeriods(reported: ReportedValue[], price: PriceLookup = () => null): PeriodFigures[] {
+export function buildPeriods(reported: ReportedValue[], price: PriceLookup = () => null, dropped: ReadonlySet<string> = new Set()): PeriodFigures[] {
+  const previous = droppedItems;
+  droppedItems = dropped;
+  try {
+    return buildPeriodsWith(reported, price);
+  } finally {
+    droppedItems = previous;
+  }
+}
+
+/** Item keys a filing's drops name (a constraint drop lists its inputs as "a/b/c"). */
+export function droppedItemKeys(drops: ReadonlyArray<{ item: string }>): Set<string> {
+  return new Set(drops.flatMap((drop) => drop.item.split('/')).map((item) => item.trim()).filter(Boolean));
+}
+
+function buildPeriodsWith(reported: ReportedValue[], price: PriceLookup): PeriodFigures[] {
   const bases = [...new Set(reported.map((value) => value.basis))];
   const periods: PeriodFigures[] = [];
   for (const basis of bases) {
@@ -452,8 +467,25 @@ function fill(f: Figures, key: string, inputs: [string, string], compute: (a: nu
 }
 
 /** Sum of the parts that are present; `minimum` of them must be. */
+/**
+ * Items the filing printed but the checks dropped (V6 and the constraint rules), for the
+ * buildPeriods call in progress. A sum missing one of them is not a total: SNAI's 2025 annual
+ * dropped its short-term borrowings and total_debt came out of the leases and long-term debt
+ * alone, which then read as a 99% effective interest rate. A missing part that was never
+ * printed is still a zero, as before.
+ */
+let droppedItems: ReadonlySet<string> = new Set();
+/** Sums skipped for a dropped part, per period's figures: a sum over them is blocked too. */
+const blockedSums = new WeakMap<Figures, Set<string>>();
+
 function fillSum(f: Figures, key: string, parts: string[], minimum = 1): void {
   if (f[key]) return;
+  const blocked = blockedSums.get(f) ?? new Set<string>();
+  if (parts.some((part) => !f[part] && (droppedItems.has(part) || blocked.has(part)))) {
+    blocked.add(key);
+    blockedSums.set(f, blocked);
+    return;
+  }
   const present = parts.filter((part) => f[part]);
   if (present.length < minimum) return;
   f[key] = derived(present.reduce((sum, part) => sum + f[part]!.value, 0), present.join(' + '));
