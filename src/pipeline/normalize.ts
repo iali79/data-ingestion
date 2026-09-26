@@ -82,6 +82,12 @@ export function expandShortDates(text: string): string {
     });
 }
 
+/**
+ * A header that prints its period as a month range: "April - June 2026", "Jan-Jun", "July 2025 to
+ * June 2026" (C10). Banks print their interim profit and loss this way, with no "months ended".
+ */
+const MONTH_NAME = '(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?';
+const MONTH_RANGE = new RegExp(`\\b${MONTH_NAME}(?:\\s*,?\\s*(?:19|20)\\d{2})?\\s*(?:-|–|—|\\bto\\b)\\s*${MONTH_NAME}(?![a-z])`, 'iu');
 const PERIOD_PHRASE = /\b(three|3)[-\s]months?\b|\bquarter\b|\b(six|6)[-\s]months?\b|\bhalf[-\s]?year|\b(nine|9)[-\s]months?\b|\b(twelve|12)[-\s]months?\b|\byear\s+ended\b/iu;
 const NOTE_REF = /^\d{1,2}(?:\.\d{1,2}){0,2}(?:\s*[&,]\s*\d{1,2}(?:\.\d{1,2}){0,2})*$/u;
 const FIGURE = /^\(?-?\d{1,3}(?:,\d{3})*(?:\.\d+)?\)?$|^\(?-?\d+(?:\.\d+)?\)?$/u;
@@ -502,14 +508,17 @@ export function describeColumns(
   // C9: when any header prints its own period phrase, the others' lengths are not guessed from
   // the title or the year-end: a half-year filing that also prints the quarter would otherwise
   // date the quarter's columns as six months.
-  const phrased = headers.some((header) => periodPhrases(header).size > 0);
+  const phrased = headers.some((header) => periodPhrases(header).size > 0 || monthRange(header) !== null);
   const columns: StatementColumn[] = headers.map((header, index) => {
     const years = [...header.matchAll(/(?<![\d,.])((?:19|20)\d{2})(?![\d,.])/gu)].map((match) => match[1]!);
     const year = years.at(-1) ?? null;
     // C8: an annual filing's column that prints only its year ends at the financial year-end.
     const annualFiling = /^\d{4}$/u.test(filing.periodEnded);
-    const date = monthDay(header) ?? titleDate ?? (annualFiling ? filing.yearEndMonthDay ?? null : null);
+    const range = monthRange(header);
+    const date = monthDay(header) ?? (range && year ? monthEnd(year, range.endMonth) : null) ?? titleDate ?? (annualFiling ? filing.yearEndMonthDay ?? null : null);
     const phrases = periodPhrases(header);
+    // C10: a month range is the column's length; a printed phrase that disagrees makes it unknown.
+    if (range) phrases.add(range.months);
     // C9: a header naming two lengths ("Year Ended Quarter": Docling merged the "Half Year Ended"
     // and "Quarter Ended" spans and lost a word) has no length it can be trusted for.
     const months =
@@ -539,6 +548,22 @@ export function describeColumns(
 /** The period lengths a header's phrases name: "Nine months ended" {9}, "Year Ended Quarter" {12, 3}. */
 function periodPhrases(header: string): Set<number> {
   return new Set([...header.matchAll(new RegExp(PERIOD_PHRASE.source, 'giu'))].map((match) => phraseMonths(match[0])));
+}
+
+/** C10: "April - June" is three months ending in June; "July to June" twelve. */
+function monthRange(header: string): { months: number; endMonth: number } | null {
+  const match = MONTH_RANGE.exec(header);
+  if (!match) return null;
+  const start = MONTHS.indexOf(match[1]!.toLowerCase());
+  const end = MONTHS.indexOf(match[2]!.toLowerCase());
+  if (start < 0 || end < 0) return null;
+  return { months: ((end - start + 12) % 12) + 1, endMonth: end + 1 };
+}
+
+/** The last day of a month as the column rules write a date, "-06-30". */
+function monthEnd(year: string, month: number): string {
+  const day = new Date(Date.UTC(Number(year), month, 0)).getUTCDate();
+  return `-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
 function phraseMonths(phrase: string): number {
