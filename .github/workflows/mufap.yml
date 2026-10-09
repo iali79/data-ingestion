@@ -1,0 +1,79 @@
+name: MUFAP
+
+# Fund data from the Mutual Funds Association of Pakistan's public industry pages.
+#
+# Manual only for now. `probe` fetches the pages and keeps them as an artifact without sending
+# anything anywhere; `daily` also builds one snapshot and submits it to the ingest API, which
+# accepts identity tokens from exactly this workflow file on `main` and only stages what it gets.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: What to run
+        type: choice
+        options: ['probe', 'daily']
+        default: 'probe'
+
+permissions: {}
+
+concurrency:
+  group: mufap
+  cancel-in-progress: false
+
+jobs:
+  mufap:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+
+      # MUFAP sits behind a Cloudflare challenge that ordinary clients get; curl-impersonate's
+      # Chrome build is served normally. Pinned release, verified against GitHub's published digest.
+      - name: Install curl-impersonate
+        env:
+          VERSION: v2.2.3
+          SHA256: ca7c8aae49e33260d3a2400db16c7737aaf04692d606a843502056b42990f989
+        run: |
+          asset="curl-impersonate-${VERSION}.x86_64-linux-gnu.tar.gz"
+          dir="$RUNNER_TEMP/curl-impersonate"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/$asset" "https://github.com/lexiforest/curl-impersonate/releases/download/${VERSION}/${asset}"
+          echo "${SHA256}  $RUNNER_TEMP/$asset" | sha256sum -c -
+          mkdir -p "$dir"
+          tar -xzf "$RUNNER_TEMP/$asset" -C "$dir"
+          wrapper=$(find "$dir" -type f -name 'curl_chrome*' | sort -V | tail -1)
+          if [ -z "$wrapper" ]; then echo "no Chrome wrapper in the archive:"; find "$dir" -maxdepth 2; exit 1; fi
+          chmod +x "$dir"/* 2>/dev/null || true
+          echo "MUFAP_CURL=$wrapper" >> "$GITHUB_ENV"
+          echo "using $(basename "$wrapper")"
+
+      - name: MUFAP
+        env:
+          MUFAP_MODE: ${{ inputs.mode || 'probe' }}
+          MUFAP_OUT_DIR: mufap-out
+          # Secrets only so the values are masked in these public logs; neither is a credential.
+          # Authentication is this job's OIDC token.
+          INGEST_API_URL: ${{ secrets.INGEST_API_URL }}
+          MUFAP_OIDC_AUDIENCE: ${{ secrets.MUFAP_OIDC_AUDIENCE }}
+        run: node dist/mufap/run.js
+
+      - name: Keep the fetched pages
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mufap-pages
+          path: mufap-out/
+          if-no-files-found: ignore
+          retention-days: 7

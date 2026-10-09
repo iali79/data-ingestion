@@ -112,6 +112,27 @@ force fresh extraction.
 document would change (OCR resolution, tesseract mode, the sparse-page threshold); older text is
 then ignored and re-extracted.
 
+## MUFAP fund data
+
+The **MUFAP** workflow reads the Mutual Funds Association of Pakistan's public industry pages
+(`src/mufap/`): per-fund NAV, rating, benchmark and returns (tab 1), offer and repurchase prices,
+loads and trustee (tab 3), payouts (tab 4) and expense ratios (tab 5). Every row is keyed by
+MUFAP's own fund id from its profile link, never by name: pension schemes share one name across
+their sub-funds. Tab 2 is not fetched because it serves the same figures as tab 1.
+
+The site answers ordinary HTTP clients with a Cloudflare challenge, so the workflow installs
+curl-impersonate (pinned release, checksum verified) and fetches only `www.mufap.com.pk` through
+it. Run it from the Actions tab:
+
+- `probe` fetches the pages, uploads them as the `mufap-pages` artifact (7 days) and reports
+  row counts. It sends nothing anywhere.
+- `daily` also merges the pages into one snapshot and submits it to the ingest API's MUFAP
+  endpoint, authenticated by the job's OIDC token for this workflow file. The API stages the
+  snapshot; nothing is written until our own workers have validated it.
+
+A page that comes back as a challenge, or with fewer than 300 funds, fails the run instead of
+sending a partial day.
+
 ## Development
 
 ```sh
@@ -132,6 +153,7 @@ publishes their text to the corpus, and reads it back on a runner with no OCR to
 |---|---|---|
 | `INGEST_API_URL` | secret | Base URL of the ingest API (a secret only so it is masked in public logs) |
 | `INGEST_OIDC_AUDIENCE` | secret | Audience the OIDC token is requested for |
+| `MUFAP_OIDC_AUDIENCE` | secret | Audience for the MUFAP workflow's token (`daily` mode only) |
 
 The corpus uses each job's built-in `GITHUB_TOKEN` (read-only in Extract, write only in Publish
 corpus); it needs no configuration.
