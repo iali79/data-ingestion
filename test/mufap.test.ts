@@ -13,7 +13,7 @@ import {
   toNumber,
 } from '../src/mufap/pages.js';
 import { buildDailySnapshot } from '../src/mufap/snapshot.js';
-import { assertMufapUrl } from '../src/mufap/transport.js';
+import { assertMufapUrl, classifyRefusal } from '../src/mufap/transport.js';
 
 // Real MUFAP pages from 2026-10-09, cut down to ten funds (see test/fixtures/mufap).
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/mufap/${name}.html`, import.meta.url), 'utf8');
@@ -151,6 +151,12 @@ describe('parsing helpers', () => {
   it('decodes entities and attributes inside table cells', () => {
     const [table] = readTables('<table><tr><td><a href="/x?a=1&amp;b=2">S&amp;P&nbsp;Fund</a></td></tr></table>');
     expect(table?.[0]).toEqual({ cells: ['S&P Fund'], links: ['/x?a=1&b=2'], handlers: [] });
+  });
+
+  it('tells a Cloudflare challenge from a block page', () => {
+    expect(classifyRefusal(fixture('challenge'))).toBe('challenge');
+    expect(classifyRefusal('<title>Attention Required!</title><h1>Sorry, you have been blocked</h1>')).toBe('blocked');
+    expect(classifyRefusal('<html>nope</html>')).toBe('other');
   });
 
   it('only lets MUFAP itself be fetched', () => {

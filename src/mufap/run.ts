@@ -90,7 +90,11 @@ async function fetchPage(page: PageName, outDir: string | undefined): Promise<st
     const rows = page === 'monthlyAum' ? parseMonthlyAum(body).rows.length : rowsOf(page, body);
     return `${rows} rows in ${Math.round((Date.now() - started) / 100) / 10}s`;
   } catch (error) {
-    if (error instanceof MufapRefusedError) return `refused (HTTP ${error.status})`;
+    if (error instanceof MufapRefusedError) {
+      // The refusal page is Cloudflare's, not data; keep its start for the artifact.
+      if (outDir) await writeFile(join(outDir, `${page}.refused.html`), error.body.slice(0, 20_000));
+      return `refused (HTTP ${error.status}, ${error.refusal}) after retries`;
+    }
     if (error instanceof PageShapeError) return `unreadable (${error.message})`;
     return `failed (${error instanceof Error ? error.message.slice(0, 120) : 'unknown'})`;
   }

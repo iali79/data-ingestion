@@ -29,14 +29,25 @@ export interface MufapRequest {
   referer?: string;
 }
 
-/** Thrown for answers no retry can fix: a challenge page or a 4xx. */
+/** Thrown once retries are spent on a refusal (403) or at once for any other 4xx. */
 export class MufapRefusedError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** `challenge` (Cloudflare's "Just a moment"), `blocked` (its access-denied page) or `other`. */
+    readonly refusal: Refusal,
+    readonly body: string,
   ) {
     super(message);
   }
+}
+
+export type Refusal = 'challenge' | 'blocked' | 'other';
+
+export function classifyRefusal(body: string): Refusal {
+  if (/<title>\s*Just a moment/i.test(body)) return 'challenge';
+  if (/Sorry, you have been blocked|Access denied|error code:?\s*10\d\d/i.test(body)) return 'blocked';
+  return 'other';
 }
 
 export function assertMufapUrl(raw: string): URL {
@@ -54,12 +65,20 @@ export async function mufapRequest(raw: string, request: MufapRequest = {}): Pro
     try {
       const response = await curl(url, request);
       if (response.status === 200) return response;
-      if (response.status === 403 || (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429)) {
-        throw new MufapRefusedError(`${url.pathname} answered HTTP ${response.status}`, response.status);
+      const refused = new MufapRefusedError(
+        `${url.pathname} answered HTTP ${response.status}`,
+        response.status,
+        classifyRefusal(response.body),
+        response.body,
+      );
+      // A 403 is retried like a transient error: from shared cloud addresses Cloudflare refuses some
+      // requests and serves others. Any other 4xx means the request itself is wrong.
+      if (response.status !== 403 && response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429) {
+        throw refused;
       }
-      lastError = new Error(`${url.pathname} answered HTTP ${response.status}`);
+      lastError = refused;
     } catch (error) {
-      if (error instanceof MufapRefusedError) throw error;
+      if (error instanceof MufapRefusedError && error.status !== 403) throw error;
       lastError = error;
     }
     if (attempt < RETRIES) await sleep(backoffMs(attempt));
