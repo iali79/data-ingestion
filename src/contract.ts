@@ -9,6 +9,7 @@
 import type { ExtractedDocument } from './extraction.js';
 import type { ExtractionErrorCode } from './errors.js';
 import type { CorporateActionCandidate, ConsolidationBasis, ParsedStatementLine, StatementType } from './parser.js';
+import type { MeetingCandidate } from './meeting.js';
 
 export const SCHEMA_VERSION = 1;
 export const EXTRACTOR_VERSION = 9;
@@ -91,8 +92,16 @@ export type ResultPayload =
       statement: { status: StatementStatus; candidateCount: number; lines: StatementLinePayload[] };
       pages: Array<{ pageNumber: number; method: string; confidence: number; text: string }>;
     })
-  | (ResultEnvelope & { outcome: 'extracted'; document: DocumentSummary | null; corporateActions: CorporateActionPayload[] })
+  | (ResultEnvelope & { outcome: 'extracted'; document: DocumentSummary | null; corporateActions: CorporateActionPayload[]; meeting: MeetingPayload | null })
   | (ResultEnvelope & { outcome: 'failed'; error: { code: ExtractionErrorCode; message: string } });
+
+/** A board-meeting notice's meeting (CONTRACT.md, "Corporate-action notice"). */
+export type MeetingPayload = MeetingCandidate;
+
+export function toMeetingPayload(meeting: MeetingCandidate | null): MeetingPayload | null {
+  if (!meeting) return null;
+  return { ...meeting, sourceText: meeting.sourceText.slice(0, LIMITS.actionSourceTextChars) };
+}
 
 export function envelope(task: ClaimedTask): ResultEnvelope {
   return { schemaVersion: SCHEMA_VERSION, taskId: task.id, leaseToken: task.leaseToken, extractorVersion: EXTRACTOR_VERSION };

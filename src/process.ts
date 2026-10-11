@@ -7,7 +7,9 @@ import {
   summarizeDocument,
   toActionPayload,
   toLinePayload,
+  toMeetingPayload,
 } from './contract.js';
+import { isBoardMeetingTitle, parseBoardMeeting } from './meeting.js';
 import { DocumentExtractionError } from './errors.js';
 import { downloadAndExtractDocument, type ExtractedDocument, type OcrPolicy } from './extraction.js';
 import type { LlmClient } from './llm/client.js';
@@ -114,6 +116,9 @@ async function processStatement(
  * A notice's title alone often carries the entitlement ("Final cash dividend 20%"), so a notice
  * with no attachment, or one whose attachment fails to download, is still parsed from its title
  * rather than failed outright.
+ *
+ * A notice titled as a board meeting is also read for the meeting itself (src/meeting.ts): the
+ * date, time and whether it is for results, from the document only -- the title gives none.
  */
 async function processNotice(
   task: Extract<ClaimedTask, { kind: 'corporate_action_notice' }>,
@@ -139,6 +144,7 @@ async function processNotice(
       .map(toActionPayload)
       .filter((action) => action !== null)
       .slice(0, LIMITS.actions),
+    meeting: document && isBoardMeetingTitle(task.context.title) ? toMeetingPayload(parseBoardMeeting(document.text)) : null,
   };
 }
 

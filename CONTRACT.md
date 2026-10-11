@@ -101,6 +101,26 @@ What the API does again on its side, whatever the payload says:
 - `actionType`: `dividend | bonus | right | split`. `details` has exactly one key for the type:
   `dividendPercent`, `bonusPercent`, `rightPercent` (0–10,000) or `splitRatio` (`N:N`).
 - `exDate` is `YYYY-MM-DD` or `null`. The event date is taken from the notice itself, not sent.
+- `meeting` is sent for a notice whose title is a board meeting, read from the document
+  (`src/meeting.ts`); `null` otherwise, or when the document states no date clearly:
+
+```json
+"meeting": {
+  "kind": "board_meeting",
+  "date": "2026-10-19",
+  "time": "09:30",
+  "purpose": "financial_results",
+  "resultsPeriod": "quarter",
+  "periodEnded": "2026-09-30",
+  "confidence": 0.8,
+  "sourceText": "meeting of the Board of Directors ... will be held on Monday, October 19, 2026 at 9:30 a.m. ..."
+}
+```
+
+  `date` is the meeting's local calendar day, `time` local `HH:MM` (24-hour) or `null`;
+  `purpose` is `financial_results | other`; `resultsPeriod` is `quarter | half_year | annual` or
+  `null`; `periodEnded` is the `YYYY-MM-DD` the results cover, or `null`. The receiving side checks
+  the date against the notice's publish date and drops one that cannot be its meeting.
 
 ### 2c. Failure
 
