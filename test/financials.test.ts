@@ -172,6 +172,10 @@ describe('conventions', () => {
     // TBL interim statements.
     expect(unitFromText("Audited | Note | (Rs in 000's) | PROPERTY AND ASSETS")).toBe(1_000);
     expect(unitFromText('(Rupees in 000)')).toBe(1_000);
+    // HUBC prints "(Rs. ‘000s)": the trailing s defeated the word boundary, and every HUBC statement
+    // came through unscaled, a thousand times too small.
+    expect(unitFromText('Note 2026 2025 (Rs. ‘000s) (Rs. ‘000s) Revenue from contracts with customers - net 5 71,126,352')).toBe(1_000);
+    expect(unitFromText("(Rs. '000s)")).toBe(1_000);
     // PNSC: the header's two halves with a column date between them.
     expect(unitFromText("-------------(Rupees\nQuarter ended September 30, 2023 in '000)-------------")).toBe(1_000);
     // Amounts in prose are not a unit.
