@@ -299,10 +299,10 @@ const HEADER_WORDS = /^(?:buyer|seller|certificates?|certificate\(s\)|descriptio
 const DESIGNATION = /\b(?:director|ceo|chief|executive|chairman|chairperson|substantial|shareholder|sponsor|spouse|elected|independent|nominee|secretary|cfo|officer|employee|head|manager|management|senior|president|trustee|minor|associate)\b/iu;
 
 /** Short words a real name has: honorifics, particles, initials with a stop. Anything else this short is scan debris. */
-const NAME_PARTICLE = /^(?:mr|mrs|ms|miss|dr|m|md|of|al|el|bin|bint|ur|ul|ud|un|hj|hafiz|sh|mst|ch|rao|sir|late|jr|sr|ii|iii|iv|ltd|co|pvt|inc|and)\.?$/iu;
+const NAME_PARTICLE = /^(?:mr|mrs|ms|m\/s|miss|dr|m|md|of|al|el|bin|bint|ur|ul|ud|un|hj|hafiz|sh|mst|ch|rao|sir|late|jr|sr|ii|iii|iv|ltd|co|pvt|inc|and)\.?$/iu;
 
 /** A word of a printed name: capitalised or all capitals, with the stops, brackets and commas names carry. */
-const NAME_WORD = /^\(?[A-Z][A-Za-z.'’\-/&]*[.,)]*$|^[(&]$/u;
+const NAME_WORD = /^\(?[A-Z][A-Za-z.'’\-/&()]*[.,)]*$|^[(&]$/u;
 const NAME_LOWER = /^(?:of|bin|bint|and|al|ur|ul|ud|un|el|de|van|von|the|\(pvt\.?\)|pvt\.?|ltd\.?)$/iu;
 
 /**
@@ -311,12 +311,13 @@ const NAME_LOWER = /^(?:of|bin|bint|and|al|ur|ul|ud|un|el|de|van|von|the|\(pvt\.
  * Only the ends are trimmed; a name that is still broken in the middle fails `cleanName`.
  */
 export function tidyName(name: string): string {
-  const junk = (w: string) => /[^A-Za-z.'’&()\-,/]/u.test(w) || (w.replace(/[^A-Za-z]/gu, '').length <= 2 && !NAME_PARTICLE.test(w) && !/^[A-Za-z]\.$/u.test(w));
+  const junk = (w: string) => /^(?:s\.?\s?no\.?|sr\.?|no\.?)$/iu.test(w) || /[^A-Za-z.'’&()\-,/]/u.test(w) || (w.replace(/[^A-Za-z]/gu, '').length <= 2 && !NAME_PARTICLE.test(w) && !/^[A-Za-z]\.$/u.test(w));
   const words = name.replace(/[{]/gu, '(').replace(/[}]/gu, ')').split(/\s+/u).filter(Boolean);
   while (words.length > 0 && junk(words[0]!)) words.shift();
   // A date's month word can run on from the next column ("Sheikh June").
   while (words.length > 0 && (junk(words[words.length - 1]!) || /^(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?$/iu.test(words[words.length - 1]!))) words.pop();
-  return words.join(' ');
+  // A role cut off mid-bracket ("(Executi ve") is not part of the name.
+  return words.join(' ').replace(/\s*\([^)]*$/u, '').trim();
 }
 
 /** A person or company name, not column titles or leftovers: 2 to 8 words, letters, no digits. */
