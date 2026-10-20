@@ -93,7 +93,7 @@ interface Row {
 
 const END = /^\s*(?:we\s+confirm|you\s+may|yours|thanks|thank\s+you|sincerely|notes?\s*:?|cc\s*:|company\s+secretary|regards|please|very\s+truly|\*\s)/iu;
 
-const HEADER_WORD = /\b(?:certificates?|description|market|nature|rate|price|percentage|cumulative|shareholding|name\s+of|relevant|persons?|form\s+of|date|details?\s+of)\b/iu;
+const HEADER_WORD = /\b(?:certificates?|description|market|nature|rate|price|percentage|cumulative|shareholding|name\s+of|relevant|persons?|form\s+of|date|details?\s+of|trade|shares?)\b/iu;
 
 /** A line of column titles: two or more different title words and no date. A name that happens to be "Person" is one word. */
 function isHeaderLine(line: string): boolean {
@@ -168,6 +168,10 @@ export function parseInsiderDisclosure(text: string, options: { publishedAt?: Da
   const below = region.length - 1 - rows[rows.length - 1]!.line;
   const mode: 'first' | 'last' | 'centred' = above === 0 ? 'first' : below === 0 ? 'last' : 'centred';
 
+  // Whether the table has columns for the holding after the trade. Without them the second figure of
+  // a row is the rate even when it prints as a whole number (Systems Limited: "500,000  117  Ready").
+  const hasCumulative = /cumulative|shareholding|holding|percentage|number\s+of\s+shares|%/iu.test(region.slice(0, rows[0]!.line).join(' '));
+
   const out: InsiderTransactionCandidate[] = [];
   rows.forEach((row, index) => {
     const prev = rows[index - 1]?.line ?? -1;
@@ -186,7 +190,7 @@ export function parseInsiderDisclosure(text: string, options: { publishedAt?: Da
     }
     const block = region.slice(top, bottom + 1);
     const core = region[row.line]!;
-    const parsed = readRow(core, block, row);
+    const parsed = readRow(core, block, row, hasCumulative);
     if (parsed) out.push(parsed);
   });
   let last: { person: string; designation: string | null } | null = null;
@@ -203,7 +207,7 @@ export function parseInsiderDisclosure(text: string, options: { publishedAt?: Da
   return named.filter((t) => plausible(t, options.publishedAt));
 }
 
-function readRow(core: string, block: string[], row: Row): InsiderTransactionCandidate | null {
+function readRow(core: string, block: string[], row: Row, hasCumulative: boolean): InsiderTransactionCandidate | null {
   const nx = row.natureAt;
   // Numbers to the right of the nature column, in reading order across the whole block.
   const right: Array<{ at: number; raw: string; value: number }> = [];
@@ -217,11 +221,21 @@ function readRow(core: string, block: string[], row: Row): InsiderTransactionCan
   }
   const quantity = figures[0];
   if (!quantity || !Number.isInteger(quantity.value) || quantity.value <= 0) return null;
-  // The rate has a decimal point; an integer rate is accepted when a fourth figure follows (cumulative shares).
-  const rateToken = figures[1] && (figures[1].raw.includes('.') || figures.length >= 4) ? figures[1] : null;
+  const nature = natureOf(row.nature);
+  // The rate has a decimal point; an integer rate is accepted when a fourth figure follows (cumulative shares)
+  // or when the table has no cumulative columns for the second figure to be.
+  let rateToken = figures[1] && (figures[1].raw.includes('.') || figures.length >= 4 || !hasCumulative) ? figures[1] : null;
   const cumulative = figures.slice(rateToken ? 2 : 1);
-  const cumShares = cumulative.find((n) => Number.isInteger(n.value) && n.value >= 0 && !n.raw.includes('.'));
+  let cumShares = cumulative.find((n) => Number.isInteger(n.value) && n.value >= 0 && !n.raw.includes('.'));
   const cumPercent = [...cumulative].reverse().find((n) => n !== cumShares && n.value >= 0 && n.value <= 100);
+  // A holding after a trade is never under a hundred shares, and after a purchase never under the shares
+  // bought. A smaller whole number there is a row number ("1", "2") or a whole-rupee rate read as the holding.
+  if (cumShares && !rateToken && nature === 'buy' && cumShares.value < quantity.value && cumShares.value <= 100_000) {
+    rateToken = cumShares;
+    cumShares = undefined;
+  } else if (cumShares && (cumShares.value < 100 || (nature === 'buy' && cumShares.value < quantity.value))) {
+    cumShares = undefined;
+  }
 
   // Left of the nature column: person, designation, form, market, date.
   const leftOf = (line: string) => line.slice(0, Math.max(nx, 0));
@@ -250,8 +264,10 @@ function readRow(core: string, block: string[], row: Row): InsiderTransactionCan
     .trim();
   const split = splitPerson(nameText);
   // A row whose name is blank or garbled keeps its figures: the name is carried down from the row above (several trades by one person print the name once).
-  const named = cleanName(split.person);
-  const person = named ? split.person : '';
+  const tidy = tidyName(split.person);
+  const named = cleanName(tidy);
+  const person = named ? tidy : '';
+  if (named && tidy !== split.person) confidence = Math.min(confidence, 0.75);
   const designation = split.designation;
 
   const marketMatch = /\b(Ready|Futures?|NDM|Deal|Negotiated|Odd\s*lot|Block)\b/iu.exec(lefts.join(' '));
@@ -259,7 +275,7 @@ function readRow(core: string, block: string[], row: Row): InsiderTransactionCan
     date,
     person,
     designation,
-    nature: natureOf(row.nature),
+    nature,
     quantity: quantity.value,
     rate: rateToken ? rateToken.value : null,
     market: marketMatch ? marketMatch[1]!.replace(/\s+/gu, ' ') : null,
@@ -280,7 +296,28 @@ function firstDataColumn(left: string): number {
 }
 
 const HEADER_WORDS = /^(?:buyer|seller|certificates?|certificate\(s\)|description|relevant|person\(s\)|date|nature|rate|price|market|transactions?|cumulative|shareholding|percentage|average|name:?)$/iu;
-const DESIGNATION = /\b(?:director|ceo|chief|executive|chairman|chairperson|substantial|shareholder|sponsor|spouse|elected|independent|nominee|secretary|cfo|officer|employee|head|manager|president|trustee|minor|associate)\b/iu;
+const DESIGNATION = /\b(?:director|ceo|chief|executive|chairman|chairperson|substantial|shareholder|sponsor|spouse|elected|independent|nominee|secretary|cfo|officer|employee|head|manager|management|senior|president|trustee|minor|associate)\b/iu;
+
+/** Short words a real name has: honorifics, particles, initials with a stop. Anything else this short is scan debris. */
+const NAME_PARTICLE = /^(?:mr|mrs|ms|miss|dr|m|md|of|al|el|bin|bint|ur|ul|ud|un|hj|hafiz|sh|mst|ch|rao|sir|late|jr|sr|ii|iii|iv|ltd|co|pvt|inc|and)\.?$/iu;
+
+/** A word of a printed name: capitalised or all capitals, with the stops, brackets and commas names carry. */
+const NAME_WORD = /^\(?[A-Z][A-Za-z.'’\-/&]*[.,)]*$|^[(&]$/u;
+const NAME_LOWER = /^(?:of|bin|bint|and|al|ur|ul|ud|un|el|de|van|von|the|\(pvt\.?\)|pvt\.?|ltd\.?)$/iu;
+
+/**
+ * A name read from a scan or an awkward text layer, with the debris at its ends removed: stray one or
+ * two letter fragments ("C c LSE Ventures") and tokens carrying symbols ("Yoi:• u Muhammad Sohail Khan").
+ * Only the ends are trimmed; a name that is still broken in the middle fails `cleanName`.
+ */
+export function tidyName(name: string): string {
+  const junk = (w: string) => /[^A-Za-z.'’&()\-,/]/u.test(w) || (w.replace(/[^A-Za-z]/gu, '').length <= 2 && !NAME_PARTICLE.test(w) && !/^[A-Za-z]\.$/u.test(w));
+  const words = name.replace(/[{]/gu, '(').replace(/[}]/gu, ')').split(/\s+/u).filter(Boolean);
+  while (words.length > 0 && junk(words[0]!)) words.shift();
+  // A date's month word can run on from the next column ("Sheikh June").
+  while (words.length > 0 && (junk(words[words.length - 1]!) || /^(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?$/iu.test(words[words.length - 1]!))) words.pop();
+  return words.join(' ');
+}
 
 /** A person or company name, not column titles or leftovers: 2 to 8 words, letters, no digits. */
 export function cleanName(name: string): boolean {
@@ -288,6 +325,15 @@ export function cleanName(name: string): boolean {
   if (words.length < 2 && !/^[A-Z][a-z]{3,}$/u.test(name)) return false;
   if (words.length > 9 || /\d/u.test(name)) return false;
   if (words.some((w) => HEADER_WORDS.test(w))) return false;
+  // A name that starts on a symbol is a cut-off fragment ("& Industries Ltd."), and one made only of
+  // role words ("Substantial") is a designation that lost its person.
+  if (/^[^A-Za-z]/u.test(name) || words.every((w) => DESIGNATION.test(w))) return false;
+  // Scan debris: two or more stray one or two letter fragments ("... wa i Al-No").
+  const stray = words.filter((w) => w.replace(/[^A-Za-z]/gu, '').length <= 2 && !NAME_PARTICLE.test(w) && !/^[A-Za-z]\.$/u.test(w)).length;
+  if (stray >= 2) return false;
+  // A name is made of capitalised words; lowercase fragments and symbol-laden tokens in it are scan noise.
+  const bad = words.filter((w) => !NAME_WORD.test(w) && !NAME_LOWER.test(w)).length;
+  if (bad / words.length > 0.2) return false;
   return /[A-Za-z]{3,}/u.test(name);
 }
 
