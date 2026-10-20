@@ -77,7 +77,7 @@ function describe(payload: ResultPayload | FinancialsResult): string {
     return `periods=${payload.periods.length} reported=${reported} pages=${payload.document.pagesRead}/${payload.document.pageCount} dropped=${payload.log.drops.length}`;
   }
   if ('statement' in payload) return `${payload.statement.status} lines=${payload.statement.lines.length}`;
-  return `actions=${payload.corporateActions.length}`;
+  return `actions=${payload.corporateActions.length}${payload.insiderTransactions ? ` insider=${payload.insiderTransactions.length}` : ''}`;
 }
 
 function withTimeout(work: Promise<ResultPayload | FinancialsResult>, ms: number, task: ClaimedTask): Promise<ResultPayload | FinancialsResult> {

@@ -122,6 +122,24 @@ What the API does again on its side, whatever the payload says:
   `null`; `periodEnded` is the `YYYY-MM-DD` the results cover, or `null`. The receiving side checks
   the date against the notice's publish date and drops one that cannot be its meeting.
 
+- `insiderTransactions` is sent for a notice titled as a disclosure of interest (PSX Regulation
+  5.6.4: a director, executive or substantial shareholder dealt in the company's shares), read from the
+  table in the document (`src/insider.ts`); absent for any other notice, and `[]` when the table could
+  not be read. A row is never guessed: it has a person, a date, a nature and a quantity, or it is left out.
+
+```json
+"insiderTransactions": [
+  { "date": "2026-02-04", "person": "Zara Example", "designation": "Elected Director", "nature": "buy",
+    "quantity": 27500, "rate": 39.36, "market": "Ready", "cumulativeShares": 1490772, "cumulativePercent": 2,
+    "confidence": 0.9, "sourceText": "Zara Example CDC Ready 04-02-2026 Buy 27,500 39.36 1,490,772 2.00 | (Elected Director)" }
+]
+```
+
+  `date` is the day of the trade (`YYYY-MM-DD`), `nature` is `buy | sell | other`, `quantity` a positive
+  whole number of shares, `rate` the price per share or `null`; `cumulativeShares` and `cumulativePercent`
+  are the person's holding after the trade, or `null`. The receiving side checks every row against the
+  notice's publish date and drops one dated in the future or long before it.
+
 ### 2c. Failure
 
 ```json
@@ -155,5 +173,6 @@ host_not_allowed`.
 | `label` | 160 characters |
 | `sourceText` | 1,000 (statement lines), 300 (corporate actions) |
 | `corporateActions` | 10 |
+| `insiderTransactions` | 60 |
 | `error.message` | 500 characters |
 | request body | 8 MB |

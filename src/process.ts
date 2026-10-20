@@ -7,9 +7,11 @@ import {
   summarizeDocument,
   toActionPayload,
   toLinePayload,
+  toInsiderPayload,
   toMeetingPayload,
 } from './contract.js';
 import { isBoardMeetingTitle, parseBoardMeeting } from './meeting.js';
+import { isInsiderDisclosureTitle, parseInsiderDisclosure } from './insider.js';
 import { DocumentExtractionError } from './errors.js';
 import { downloadAndExtractDocument, type ExtractedDocument, type OcrPolicy } from './extraction.js';
 import type { LlmClient } from './llm/client.js';
@@ -119,6 +121,8 @@ async function processStatement(
  *
  * A notice titled as a board meeting is also read for the meeting itself (src/meeting.ts): the
  * date, time and whether it is for results, from the document only -- the title gives none.
+ *
+ * A notice titled as a disclosure of interest is read for the trades in its table (src/insider.ts).
  */
 async function processNotice(
   task: Extract<ClaimedTask, { kind: 'corporate_action_notice' }>,
@@ -145,6 +149,10 @@ async function processNotice(
       .filter((action) => action !== null)
       .slice(0, LIMITS.actions),
     meeting: document && isBoardMeetingTitle(task.context.title) ? toMeetingPayload(parseBoardMeeting(document.text)) : null,
+    // A "Disclosure of Interest" notice carries a table of trades by directors and large holders.
+    ...(document && isInsiderDisclosureTitle(task.context.title)
+      ? { insiderTransactions: parseInsiderDisclosure(document.text, { publishedAt: new Date(task.context.publishedAt) }).slice(0, LIMITS.insiderRows).map(toInsiderPayload) }
+      : {}),
   };
 }
 

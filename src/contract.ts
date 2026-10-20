@@ -10,6 +10,7 @@ import type { ExtractedDocument } from './extraction.js';
 import type { ExtractionErrorCode } from './errors.js';
 import type { CorporateActionCandidate, ConsolidationBasis, ParsedStatementLine, StatementType } from './parser.js';
 import type { MeetingCandidate } from './meeting.js';
+import type { InsiderTransactionCandidate } from './insider.js';
 
 export const SCHEMA_VERSION = 1;
 export const EXTRACTOR_VERSION = 9;
@@ -21,6 +22,7 @@ export const LIMITS = {
   labelChars: 160,
   sourceTextChars: 1_000,
   actions: 10,
+  insiderRows: 60,
   actionSourceTextChars: 300,
   errorMessageChars: 500,
 } as const;
@@ -78,6 +80,21 @@ export interface CorporateActionPayload {
   sourceText: string;
 }
 
+/** One row of a "Disclosure of Interest" notice: a trade by a director, executive or substantial shareholder. */
+export interface InsiderTransactionPayload {
+  date: string;
+  person: string;
+  designation: string | null;
+  nature: 'buy' | 'sell' | 'other';
+  quantity: number;
+  rate: number | null;
+  market: string | null;
+  cumulativeShares: number | null;
+  cumulativePercent: number | null;
+  confidence: number;
+  sourceText: string;
+}
+
 interface ResultEnvelope {
   schemaVersion: typeof SCHEMA_VERSION;
   taskId: string;
@@ -92,7 +109,7 @@ export type ResultPayload =
       statement: { status: StatementStatus; candidateCount: number; lines: StatementLinePayload[] };
       pages: Array<{ pageNumber: number; method: string; confidence: number; text: string }>;
     })
-  | (ResultEnvelope & { outcome: 'extracted'; document: DocumentSummary | null; corporateActions: CorporateActionPayload[]; meeting: MeetingPayload | null })
+  | (ResultEnvelope & { outcome: 'extracted'; document: DocumentSummary | null; corporateActions: CorporateActionPayload[]; meeting: MeetingPayload | null; insiderTransactions?: InsiderTransactionPayload[] })
   | (ResultEnvelope & { outcome: 'failed'; error: { code: ExtractionErrorCode; message: string } });
 
 /** A board-meeting notice's meeting (CONTRACT.md, "Corporate-action notice"). */
@@ -101,6 +118,22 @@ export type MeetingPayload = MeetingCandidate;
 export function toMeetingPayload(meeting: MeetingCandidate | null): MeetingPayload | null {
   if (!meeting) return null;
   return { ...meeting, sourceText: meeting.sourceText.slice(0, LIMITS.actionSourceTextChars) };
+}
+
+export function toInsiderPayload(candidate: InsiderTransactionCandidate): InsiderTransactionPayload {
+  return {
+    date: candidate.date,
+    person: candidate.person.slice(0, 160),
+    designation: candidate.designation ? candidate.designation.slice(0, 80) : null,
+    nature: candidate.nature,
+    quantity: candidate.quantity,
+    rate: candidate.rate,
+    market: candidate.market ? candidate.market.slice(0, 32) : null,
+    cumulativeShares: candidate.cumulativeShares,
+    cumulativePercent: candidate.cumulativePercent === null ? null : round4(candidate.cumulativePercent),
+    confidence: round4(candidate.confidence),
+    sourceText: candidate.sourceText.slice(0, LIMITS.actionSourceTextChars),
+  };
 }
 
 export function envelope(task: ClaimedTask): ResultEnvelope {
