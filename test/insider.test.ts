@@ -60,7 +60,57 @@ company u/s 5.6.4 of the PSX Regulations
 We confirm that the said transaction(s) will be presented in the subsequent board meeting of the
 `;
 
+/** The number of shares sits before the nature column; the second row repeats the person's trade. */
+const QUANTITY_BEFORE_NATURE = `
+Subject: Transaction of Shares - Disclosure of Interest under PSX Regulations
+details are as follows:
+                                                    Nature of   Rate per                     Form of Share
+ S. No.            Name          No. of Shares   Transaction  share (Rs.)       Date          Certificates
+       1    Example Person            500           Buy         115.50       30.01.2024    Electronically - CDC
+                                      500           Buy         116.00       30.01.2024    Electronically - CDC
+                                    1,000
+You may please inform the TRE Certificate holders of the Exchange accordingly.
+`;
+
+/** A letterhead under the table prints addresses and telephone numbers; they are not part of the name. */
+const LETTERHEAD_BELOW = `
+details are as under:
+      Name        of                                   Details of Transaction(s)                          Cumulative Shareholding
+Sr.   Relevant
+No.   Person(s) with           Form of
+                                                                                         No. of                      No. of
+      Description               Share         Market          Date           Nature    Shares      Rate        Shares       Percentage
+                             Certificate(s)
+      M/s.     Example
+      Holdings (Pvt.)
+      Ltd.
+1.                                CDC         Ready        19-12-2024          Buy          165    350.00      285,040,487    91.80%
+      (Substantial
+      Shareholder/
+      Sponsor)
+                                                                         Example Centre,           Example Centre,         Example Centre,
+                                                                         15-Cub Road,               11-B, Lala Zar,         1- Ahmad Block,
+                                                                         Faisalabad,                M. T. Khan Road,        New Garden Town,
+                                                                         Pakistan.                  Karachi, Pakistan.
+                                                                                 1
+                                                                         Tel 92 41 2617836
+                                                                         Fax 92 41 2617842
+`;
+
 describe('insider disclosure notices', () => {
+  it('reads a table that prints the quantity before the nature column', () => {
+    const rows = parseInsiderDisclosure(QUANTITY_BEFORE_NATURE, { publishedAt: new Date('2024-02-01') });
+    expect(rows.map((r) => [r.date, r.person, r.nature, r.quantity, r.rate])).toEqual([
+      ['2024-01-30', 'Example Person', 'buy', 500, 115.5],
+      ['2024-01-30', 'Example Person', 'buy', 500, 116],
+    ]);
+  });
+
+  it('keeps a letterhead printed under the table out of the last row', () => {
+    const [row] = parseInsiderDisclosure(LETTERHEAD_BELOW, { publishedAt: new Date('2024-12-20') });
+    expect(row).toMatchObject({ date: '2024-12-19', person: 'M/s. Example Holdings (Pvt.) Ltd.', nature: 'buy', quantity: 165, rate: 350, cumulativeShares: 285_040_487 });
+  });
+
   it('reads a whole-number rate as the rate when the table has no cumulative columns', () => {
     const rows = parseInsiderDisclosure(WHOLE_NUMBER_RATES, { publishedAt: new Date('2026-10-01') });
     expect(rows.map((r) => [r.date, r.quantity, r.rate, r.cumulativeShares, r.designation])).toEqual([
@@ -74,6 +124,9 @@ describe('insider disclosure notices', () => {
     expect(tidyName('C c LSE Ventures Limited')).toBe('LSE Ventures Limited');
     expect(tidyName('Yoi:• u Muhammad Sohail Khan')).toBe('Muhammad Sohail Khan');
     expect(tidyName('Mr. Farhan Abbas Sheikh June')).toBe('Mr. Farhan Abbas Sheikh');
+    expect(tidyName('Certifi M/s. Example Holdings (Pvt.) Ltd.')).toBe('M/s. Example Holdings (Pvt.) Ltd.');
+    expect(tidyName('Tran Example Person')).toBe('Example Person');
+    expect(tidyName('Example Person - Preference Substantial Shareholder')).toBe('Example Person');
     expect(cleanName(tidyName('Ce l. !Mr. Javed Ahmed ,Executive of rA,foezan Bank)'))).toBe(false);
   });
 
