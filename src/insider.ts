@@ -188,6 +188,10 @@ export function parseInsiderDisclosure(text: string, options: { publishedAt?: Da
       top = index === 0 ? headerEnd + 1 : Math.floor((prev + row.line) / 2) + 1;
       bottom = index === rows.length - 1 ? region.length - 1 : Math.floor((row.line + next - 1) / 2);
     }
+    // A name wraps over a few lines at most. Further out are the next row's lines or the letterhead's
+    // addresses and telephone numbers printed under the table (Ibrahim Holdings' notice read none because of them).
+    top = Math.max(top, row.line - BLOCK_REACH);
+    bottom = Math.min(bottom, row.line + BLOCK_REACH);
     const block = region.slice(top, bottom + 1);
     const core = region[row.line]!;
     const parsed = readRow(core, block, row, hasCumulative);
@@ -207,6 +211,9 @@ export function parseInsiderDisclosure(text: string, options: { publishedAt?: Da
   return named.filter((t) => plausible(t, options.publishedAt));
 }
 
+/** Lines above or below a row's figures that can still belong to its name. */
+const BLOCK_REACH = 6;
+
 function readRow(core: string, block: string[], row: Row, hasCumulative: boolean): InsiderTransactionCandidate | null {
   const nx = row.natureAt;
   // Numbers to the right of the nature column, in reading order across the whole block.
@@ -218,6 +225,14 @@ function readRow(core: string, block: string[], row: Row, hasCumulative: boolean
     // Some letters put the date, quantity and rate before the nature ("11-03-2022  14000  8.00  Purchased ...").
     const beforeDate = core.slice(0, nx).replace(/\b\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\b|\b20\d{2}-\d{2}-\d{2}\b/gu, ' ');
     figures = numbersFrom(beforeDate, 0).filter((n) => n.value > 0);
+  }
+  // Some tables put the number of shares before the nature column ("500  Buy  115.50  30.01.2024"): the
+  // first figure after the nature is then the rate, with a decimal point, and the quantity is the whole
+  // number just left of the nature.
+  if (figures[0] && figures[0].raw.includes('.')) {
+    const nearLeft = numbersFrom(core.slice(0, nx), Math.max(0, nx - 40)).filter((n) => Number.isInteger(n.value) && n.value > 0);
+    const before = nearLeft[nearLeft.length - 1];
+    if (before) figures = [before, ...figures];
   }
   const quantity = figures[0];
   if (!quantity || !Number.isInteger(quantity.value) || quantity.value <= 0) return null;
@@ -310,14 +325,35 @@ const NAME_LOWER = /^(?:of|bin|bint|and|al|ur|ul|ud|un|el|de|van|von|the|\(pvt\.
  * two letter fragments ("C c LSE Ventures") and tokens carrying symbols ("Yoi:• u Muhammad Sohail Khan").
  * Only the ends are trimmed; a name that is still broken in the middle fails `cleanName`.
  */
+const EDGE_VOCABULARY = ['buyer', 'seller', 'certificates', 'certificate', 'description', 'relevant', 'date', 'nature', 'rate', 'market', 'transactions', 'transaction', 'cumulative', 'shareholding', 'percentage', 'name', 'thanking', 'thanks', 'you', 'yours', 'sincerely', 'regards', 'faithfully'];
+/** A clipped column title or letter closing at the end of a name ("Certifi", "Tran", "Thanking You"). */
+function isEdgeDebris(w: string): boolean {
+  const t = w.toLowerCase().replace(/[^a-z]/gu, '');
+  return t.length >= 3 && EDGE_VOCABULARY.some((v) => v.startsWith(t));
+}
+
 export function tidyName(name: string): string {
-  const junk = (w: string) => /^(?:s\.?\s?no\.?|sr\.?|no\.?)$/iu.test(w) || /[^A-Za-z.'’&()\-,/]/u.test(w) || (w.replace(/[^A-Za-z]/gu, '').length <= 2 && !NAME_PARTICLE.test(w) && !/^[A-Za-z]\.$/u.test(w));
+  const junk = (w: string) => /^(?:s\.?\s?no\.?|sr\.?|no\.?)$/iu.test(w) || isEdgeDebris(w) || /[^A-Za-z.'’&()\-,/]/u.test(w) || (w.replace(/[^A-Za-z]/gu, '').length <= 2 && !NAME_PARTICLE.test(w) && !/^[A-Za-z]\.$/u.test(w));
   const words = name.replace(/[{]/gu, '(').replace(/[}]/gu, ')').split(/\s+/u).filter(Boolean);
   while (words.length > 0 && junk(words[0]!)) words.shift();
   // A date's month word can run on from the next column ("Sheikh June").
   while (words.length > 0 && (junk(words[words.length - 1]!) || /^(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?$/iu.test(words[words.length - 1]!))) words.pop();
   // A role cut off mid-bracket ("(Executi ve") is not part of the name.
-  return words.join(' ').replace(/\s*\([^)]*$/u, '').trim();
+  return stripRoles(words.join(' ').replace(/\s*\([^)]*$/u, '').trim());
+}
+
+/** A role printed with the name ("Smith (Director)", "- Preference Substantial Shareholder") is the designation's, not the person's. */
+function stripRoles(name: string): string {
+  let out = name;
+  for (let i = 0; i < 3; i += 1) {
+    out = out
+      .replace(/\s*\([^)]*(?:director|shareholder|sponsor|executive|ceo|management|officer)[^)]*\)?\s*$/iu, '')
+      .replace(/\s*[-–]\s*(?:preference\s+)?(?:substantial\s*)?(?:shareholder)?\s*$/iu, '')
+      .replace(/\s+(?:substantial\s+)?shareholder\s*$/iu, '')
+      .replace(/^(?:substantial\s+)?shareholder\s+/iu, '')
+      .trim();
+  }
+  return out;
 }
 
 /** A person or company name, not column titles or leftovers: 2 to 8 words, letters, no digits. */
