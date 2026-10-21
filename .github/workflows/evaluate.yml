@@ -15,7 +15,7 @@ on:
       samples:
         description: Sample list
         type: choice
-        options: ['samples/hpl.json', 'samples/scanned.json', 'samples/pilot.json']
+        options: ['samples/hpl.json', 'samples/scanned.json', 'samples/pilot.json', 'samples/failing.json']
         default: 'samples/hpl.json'
       jobs:
         description: Parallel jobs
