@@ -36,8 +36,19 @@ export interface ExtractedDocument {
  * - `always`: every sparse page, up front (notices, where any page may carry the entitlement).
  * - `if-needed`: read the text layer first and OCR only when `needsOcr` says the text layer is
  *   not enough. Readable filings -- the large majority -- then never touch tesseract.
+ * - `leading`: only sparse pages among the first `pages`. A results notice is a one- or two-page
+ *   covering letter (entitlements, book closure) followed by 10 to 40 pages of statements; the
+ *   letter is all a payout is read from, so the statements are not OCR'd.
  */
-export type OcrPolicy = { mode: 'always' } | { mode: 'if-needed'; needsOcr: (document: ExtractedDocument) => boolean };
+export type OcrPolicy =
+  | { mode: 'always' }
+  | { mode: 'if-needed'; needsOcr: (document: ExtractedDocument) => boolean }
+  | { mode: 'leading'; pages: number };
+
+/** Whether a document's first `pages` pages carry text (native or OCR'd), so `leading` OCR has nothing left to do. */
+export function leadingPagesRead(document: ExtractedDocument, pages: number): boolean {
+  return document.pages.slice(0, pages).every((page) => page.method !== 'sparse');
+}
 
 /**
  * Version of the page text this module produces. Bump it whenever the text for the same document
@@ -161,13 +172,15 @@ async function extractPdf(buffer: Buffer, contentType: string | null, policy: Oc
     if (sparse.length === 0) return textOnly();
     if (policy.mode === 'if-needed' && !policy.needsOcr(textOnly())) return textOnly();
 
-    if (await commandAvailable('tesseract')) {
-      const replacements = await ocrPdfPages(
+    const toOcr = policy.mode === 'leading' ? sparse.filter((page) => page.pageNumber <= policy.pages) : sparse;
+    let replacements = new Map<number, { text: string; confidence: number }>();
+    if (toOcr.length > 0 && (await commandAvailable('tesseract'))) {
+      replacements = await ocrPdfPages(
         pdf,
         dir,
-        sparse.map((page) => page.pageNumber),
+        toOcr.map((page) => page.pageNumber),
       ).catch(() => new Map<number, { text: string; confidence: number }>());
-      for (const page of sparse) {
+      for (const page of toOcr) {
         const replacement = replacements.get(page.pageNumber);
         if (replacement && replacement.text.trim().length > page.text.trim().length) {
           page.method = 'tesseract';
@@ -185,7 +198,9 @@ async function extractPdf(buffer: Buffer, contentType: string | null, policy: Oc
       text: pages.map((page) => page.text).join('\f'),
       confidence: averageConfidence(pages),
       pages,
-      ocr: 'complete',
+      // A page OCR could not read is `skipped` too, so saved text missing it is extracted again
+      // rather than reused as if complete. A page OCR read as blank stays sparse but counts as done.
+      ocr: toOcr.length < sparse.length || toOcr.some((page) => !replacements.has(page.pageNumber)) ? 'skipped' : 'complete',
     };
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -216,7 +231,9 @@ async function ocrPdfPages(
   await Promise.all(
     Array.from({ length: lanes }, async () => {
       for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
-        out.set(next, await runTesseract(filesByPage.get(next)!));
+        // A page that fails is left out on its own; the others keep their text.
+        const result = await runTesseract(filesByPage.get(next)!).catch(() => null);
+        if (result) out.set(next, result);
       }
     }),
   );
@@ -306,7 +323,10 @@ async function readResponseWithLimit(response: Response, maxBytes: number): Prom
 }
 
 export async function runTesseract(file: string): Promise<{ text: string; confidence: number }> {
-  const result = await runCommand('tesseract', [file, 'stdout', '-l', 'eng', '--psm', '6', 'tsv']);
+  // One thread per process: pages are already OCR'd one per core (ocrPdfPages), and tesseract's
+  // default OpenMP threads on top of that oversubscribed the runner -- 3-page notices took over
+  // the 120 s command timeout and lost their OCR (the 2026-11-02 notice sample: 231 of 614).
+  const result = await runCommand('tesseract', [file, 'stdout', '-l', 'eng', '--psm', '6', 'tsv'], COMMAND_TIMEOUT_MS, { OMP_THREAD_LIMIT: '1' });
   return parseTesseractTsv(result.stdout);
 }
 
