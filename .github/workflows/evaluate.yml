@@ -15,7 +15,7 @@ on:
       samples:
         description: Sample list
         type: choice
-        options: ['samples/hpl.json', 'samples/scanned.json', 'samples/pilot.json']
+        options: ['samples/hpl.json', 'samples/scanned.json', 'samples/pilot.json', 'samples/payout-notices.json']
         default: 'samples/hpl.json'
       jobs:
         description: Parallel jobs
@@ -43,6 +43,7 @@ jobs:
 
   evaluate:
     needs: plan
+    if: ${{ inputs.samples != 'samples/payout-notices.json' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
@@ -87,7 +88,7 @@ jobs:
   # the comparative of the next) must agree. Differences are listed for review; nothing is dropped.
   compare:
     needs: evaluate
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.evaluate.result != 'skipped' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -113,3 +114,52 @@ jobs:
           name: crosscheck
           path: crosscheck.md
           retention-days: 14
+
+  # Payout notices (src/notice-sample.ts): the covering letter of each results notice, read as a
+  # notice task would read it, kept as page text for the payout parser's fixtures and measurement.
+  notices:
+    needs: plan
+    if: ${{ inputs.samples == 'samples/payout-notices.json' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install PDF and OCR tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-eng >/dev/null
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - name: Read notices
+        env:
+          NOTICE_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+          CORPUS_OUT_DIR: corpus-out
+        run: node dist/notice-sample.js samples/payout-notices.json out
+      - name: Keep page text
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: notices-${{ matrix.shard }}
+          path: out/
+          retention-days: 14
+      - name: Keep corpus records
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: corpus-notices-${{ matrix.shard }}
+          path: corpus-out/
+          if-no-files-found: ignore
+          retention-days: 14
+          compression-level: 0

@@ -36,8 +36,19 @@ export interface ExtractedDocument {
  * - `always`: every sparse page, up front (notices, where any page may carry the entitlement).
  * - `if-needed`: read the text layer first and OCR only when `needsOcr` says the text layer is
  *   not enough. Readable filings -- the large majority -- then never touch tesseract.
+ * - `leading`: only sparse pages among the first `pages`. A results notice is a one- or two-page
+ *   covering letter (entitlements, book closure) followed by 10 to 40 pages of statements; the
+ *   letter is all a payout is read from, so the statements are not OCR'd.
  */
-export type OcrPolicy = { mode: 'always' } | { mode: 'if-needed'; needsOcr: (document: ExtractedDocument) => boolean };
+export type OcrPolicy =
+  | { mode: 'always' }
+  | { mode: 'if-needed'; needsOcr: (document: ExtractedDocument) => boolean }
+  | { mode: 'leading'; pages: number };
+
+/** Whether a document's first `pages` pages carry text (native or OCR'd), so `leading` OCR has nothing left to do. */
+export function leadingPagesRead(document: ExtractedDocument, pages: number): boolean {
+  return document.pages.slice(0, pages).every((page) => page.method !== 'sparse');
+}
 
 /**
  * Version of the page text this module produces. Bump it whenever the text for the same document
@@ -161,13 +172,14 @@ async function extractPdf(buffer: Buffer, contentType: string | null, policy: Oc
     if (sparse.length === 0) return textOnly();
     if (policy.mode === 'if-needed' && !policy.needsOcr(textOnly())) return textOnly();
 
-    if (await commandAvailable('tesseract')) {
+    const toOcr = policy.mode === 'leading' ? sparse.filter((page) => page.pageNumber <= policy.pages) : sparse;
+    if (toOcr.length > 0 && (await commandAvailable('tesseract'))) {
       const replacements = await ocrPdfPages(
         pdf,
         dir,
-        sparse.map((page) => page.pageNumber),
+        toOcr.map((page) => page.pageNumber),
       ).catch(() => new Map<number, { text: string; confidence: number }>());
-      for (const page of sparse) {
+      for (const page of toOcr) {
         const replacement = replacements.get(page.pageNumber);
         if (replacement && replacement.text.trim().length > page.text.trim().length) {
           page.method = 'tesseract';
@@ -185,7 +197,7 @@ async function extractPdf(buffer: Buffer, contentType: string | null, policy: Oc
       text: pages.map((page) => page.text).join('\f'),
       confidence: averageConfidence(pages),
       pages,
-      ocr: 'complete',
+      ocr: toOcr.length < sparse.length ? 'skipped' : 'complete',
     };
   } finally {
     await rm(dir, { recursive: true, force: true });
