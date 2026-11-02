@@ -9,9 +9,11 @@ import {
   toLinePayload,
   toInsiderPayload,
   toMeetingPayload,
+  toPayoutPayload,
 } from './contract.js';
 import { isBoardMeetingTitle, parseBoardMeeting } from './meeting.js';
 import { isInsiderDisclosureTitle, parseInsiderDisclosure } from './insider.js';
+import { isPayoutNoticeTitle, parsePayoutNotice, PAYOUT_OCR } from './payout.js';
 import { DocumentExtractionError } from './errors.js';
 import { downloadAndExtractDocument, type ExtractedDocument, type OcrPolicy } from './extraction.js';
 import type { LlmClient } from './llm/client.js';
@@ -123,14 +125,19 @@ async function processStatement(
  * date, time and whether it is for results, from the document only -- the title gives none.
  *
  * A notice titled as a disclosure of interest is read for the trades in its table (src/insider.ts).
+ *
+ * A results or dividend notice is read for the Board's declaration and the book closure
+ * (src/payout.ts). Only its covering letter is OCR'd: the statements behind it run to 40 pages
+ * and carry nothing the payout needs.
  */
 async function processNotice(
   task: Extract<ClaimedTask, { kind: 'corporate_action_notice' }>,
   documents: DocumentSource,
 ): Promise<ResultPayload> {
   let document: ExtractedDocument | null = null;
+  const payoutNotice = isPayoutNoticeTitle(task.context.title);
   if (task.sourceUrl) {
-    document = await documents.obtain(task.sourceUrl, { symbol: task.context.symbol }).catch((error: unknown) => {
+    document = await documents.obtain(task.sourceUrl, { symbol: task.context.symbol }, payoutNotice ? PAYOUT_OCR : undefined).catch((error: unknown) => {
       if (error instanceof DocumentExtractionError && error.code === 'host_not_allowed') throw error;
       return null;
     });
@@ -153,7 +160,13 @@ async function processNotice(
     ...(document && isInsiderDisclosureTitle(task.context.title)
       ? { insiderTransactions: parseInsiderDisclosure(document.text, { publishedAt: new Date(task.context.publishedAt) }).slice(0, LIMITS.insiderRows).map(toInsiderPayload) }
       : {}),
+    ...(document && payoutNotice ? { payout: toPayoutPayload(parsePayoutNotice(leadingText(document), { title: task.context.title })) } : {}),
   };
+}
+
+/** The pages a payout is read from: the covering letter, as `PAYOUT_OCR` reads it. */
+function leadingText(document: ExtractedDocument): string {
+  return document.pages.slice(0, PAYOUT_OCR.pages).map((page) => page.text).join('\n');
 }
 
 function parsePeriodEnd(value: string): Date | null {

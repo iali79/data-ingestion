@@ -173,8 +173,9 @@ async function extractPdf(buffer: Buffer, contentType: string | null, policy: Oc
     if (policy.mode === 'if-needed' && !policy.needsOcr(textOnly())) return textOnly();
 
     const toOcr = policy.mode === 'leading' ? sparse.filter((page) => page.pageNumber <= policy.pages) : sparse;
+    let replacements = new Map<number, { text: string; confidence: number }>();
     if (toOcr.length > 0 && (await commandAvailable('tesseract'))) {
-      const replacements = await ocrPdfPages(
+      replacements = await ocrPdfPages(
         pdf,
         dir,
         toOcr.map((page) => page.pageNumber),
@@ -197,7 +198,9 @@ async function extractPdf(buffer: Buffer, contentType: string | null, policy: Oc
       text: pages.map((page) => page.text).join('\f'),
       confidence: averageConfidence(pages),
       pages,
-      ocr: toOcr.length < sparse.length ? 'skipped' : 'complete',
+      // A page OCR could not read is `skipped` too, so saved text missing it is extracted again
+      // rather than reused as if complete. A page OCR read as blank stays sparse but counts as done.
+      ocr: toOcr.length < sparse.length || toOcr.some((page) => !replacements.has(page.pageNumber)) ? 'skipped' : 'complete',
     };
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -228,7 +231,9 @@ async function ocrPdfPages(
   await Promise.all(
     Array.from({ length: lanes }, async () => {
       for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
-        out.set(next, await runTesseract(filesByPage.get(next)!));
+        // A page that fails is left out on its own; the others keep their text.
+        const result = await runTesseract(filesByPage.get(next)!).catch(() => null);
+        if (result) out.set(next, result);
       }
     }),
   );
@@ -318,7 +323,10 @@ async function readResponseWithLimit(response: Response, maxBytes: number): Prom
 }
 
 export async function runTesseract(file: string): Promise<{ text: string; confidence: number }> {
-  const result = await runCommand('tesseract', [file, 'stdout', '-l', 'eng', '--psm', '6', 'tsv']);
+  // One thread per process: pages are already OCR'd one per core (ocrPdfPages), and tesseract's
+  // default OpenMP threads on top of that oversubscribed the runner -- 3-page notices took over
+  // the 120 s command timeout and lost their OCR (the 2026-11-02 notice sample: 231 of 614).
+  const result = await runCommand('tesseract', [file, 'stdout', '-l', 'eng', '--psm', '6', 'tsv'], COMMAND_TIMEOUT_MS, { OMP_THREAD_LIMIT: '1' });
   return parseTesseractTsv(result.stdout);
 }
 

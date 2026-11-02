@@ -11,9 +11,10 @@ import type { ExtractionErrorCode } from './errors.js';
 import type { CorporateActionCandidate, ConsolidationBasis, ParsedStatementLine, StatementType } from './parser.js';
 import type { MeetingCandidate } from './meeting.js';
 import type { InsiderTransactionCandidate } from './insider.js';
+import type { PayoutCandidate } from './payout.js';
 
 export const SCHEMA_VERSION = 1;
-export const EXTRACTOR_VERSION = 9;
+export const EXTRACTOR_VERSION = 10;
 
 export const LIMITS = {
   lines: 400,
@@ -109,11 +110,18 @@ export type ResultPayload =
       statement: { status: StatementStatus; candidateCount: number; lines: StatementLinePayload[] };
       pages: Array<{ pageNumber: number; method: string; confidence: number; text: string }>;
     })
-  | (ResultEnvelope & { outcome: 'extracted'; document: DocumentSummary | null; corporateActions: CorporateActionPayload[]; meeting: MeetingPayload | null; insiderTransactions?: InsiderTransactionPayload[] })
+  | (ResultEnvelope & { outcome: 'extracted'; document: DocumentSummary | null; corporateActions: CorporateActionPayload[]; meeting: MeetingPayload | null; insiderTransactions?: InsiderTransactionPayload[]; payout?: PayoutPayload | null })
   | (ResultEnvelope & { outcome: 'failed'; error: { code: ExtractionErrorCode; message: string } });
 
 /** A board-meeting notice's meeting (CONTRACT.md, "Corporate-action notice"). */
 export type MeetingPayload = MeetingCandidate;
+
+export type PayoutPayload = PayoutCandidate;
+
+export function toPayoutPayload(payout: PayoutCandidate | null): PayoutPayload | null {
+  if (!payout) return null;
+  return { ...payout, confidence: round4(payout.confidence), sourceText: payout.sourceText.slice(0, LIMITS.actionSourceTextChars) };
+}
 
 export function toMeetingPayload(meeting: MeetingCandidate | null): MeetingPayload | null {
   if (!meeting) return null;
