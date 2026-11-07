@@ -63,7 +63,7 @@ jobs:
       - name: Install PDF and OCR tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-eng >/dev/null
+          sudo apt-get install -y -qq --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-eng imagemagick >/dev/null
       - run: npm ci --no-audit --no-fund
       - run: npm run build
       - id: docling
@@ -139,7 +139,7 @@ jobs:
       - name: Install PDF and OCR tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-eng >/dev/null
+          sudo apt-get install -y -qq --no-install-recommends poppler-utils tesseract-ocr tesseract-ocr-eng imagemagick >/dev/null
       - run: npm ci --no-audit --no-fund
       - run: npm run build
       - name: Read notices

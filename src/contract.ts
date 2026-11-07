@@ -14,7 +14,7 @@ import type { InsiderTransactionCandidate } from './insider.js';
 import type { PayoutCandidate } from './payout.js';
 
 export const SCHEMA_VERSION = 1;
-export const EXTRACTOR_VERSION = 10;
+export const EXTRACTOR_VERSION = 11;
 
 export const LIMITS = {
   lines: 400,
@@ -42,6 +42,11 @@ export interface NoticeTaskContext {
   symbol: string;
   title: string;
   publishedAt: string;
+  /**
+   * Every page of a notice filed as scanned images, in order, when it has more than one; `sourceUrl`
+   * is the first. Absent for a PDF notice and for a one-page image notice.
+   */
+  imageUrls?: string[];
 }
 
 export type ClaimedTask =

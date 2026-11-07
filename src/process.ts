@@ -137,10 +137,19 @@ async function processNotice(
   let document: ExtractedDocument | null = null;
   const payoutNotice = isPayoutNoticeTitle(task.context.title);
   if (task.sourceUrl) {
-    document = await documents.obtain(task.sourceUrl, { symbol: task.context.symbol }, payoutNotice ? PAYOUT_OCR : undefined).catch((error: unknown) => {
-      if (error instanceof DocumentExtractionError && error.code === 'host_not_allowed') throw error;
-      return null;
-    });
+    const obtain = (url: string) =>
+      documents.obtain(url, { symbol: task.context.symbol }, payoutNotice ? PAYOUT_OCR : undefined).catch((error: unknown) => {
+        if (error instanceof DocumentExtractionError && error.code === 'host_not_allowed') throw error;
+        return null;
+      });
+    // A notice filed as several scanned pages names them all; each is its own image.
+    const pages = noticePages(task.sourceUrl, task.context.imageUrls);
+    const read: ExtractedDocument[] = [];
+    for (const url of pages) {
+      const page = await obtain(url);
+      if (page) read.push(page);
+    }
+    document = read.length <= 1 ? (read[0] ?? null) : joinDocuments(read);
   }
   const text = document ? `${task.context.title}\n${document.text}` : task.context.title;
   const candidates = parseCorporateActionsFromText(text, {
@@ -158,10 +167,40 @@ async function processNotice(
     meeting: document && isBoardMeetingTitle(task.context.title) ? toMeetingPayload(parseBoardMeeting(document.text)) : null,
     // A "Disclosure of Interest" notice carries a table of trades by directors and large holders.
     ...(document && isInsiderDisclosureTitle(task.context.title)
-      ? { insiderTransactions: parseInsiderDisclosure(document.text, { publishedAt: new Date(task.context.publishedAt) }).slice(0, LIMITS.insiderRows).map(toInsiderPayload) }
+      ? {
+          insiderTransactions: parseInsiderDisclosure(document.text, { publishedAt: new Date(task.context.publishedAt), ocr: wasOcrd(document) })
+            .slice(0, LIMITS.insiderRows)
+            .map(toInsiderPayload),
+        }
       : {}),
     ...(document && payoutNotice ? { payout: toPayoutPayload(parsePayoutNotice(leadingText(document), { title: task.context.title })) } : {}),
   };
+}
+
+/** The URLs to read for a notice: its image pages when it lists more than one, else its one document. */
+export function noticePages(sourceUrl: string, imageUrls: unknown): string[] {
+  const pages = Array.isArray(imageUrls) ? imageUrls.filter((url): url is string => typeof url === 'string' && url.length > 0) : [];
+  if (pages.length <= 1) return [sourceUrl];
+  // The first page is `sourceUrl`; a list that does not start with it is not this notice's.
+  return pages[0] === sourceUrl ? pages.slice(0, 12) : [sourceUrl];
+}
+
+/** Several one-page documents as one, pages numbered in order. */
+export function joinDocuments(parts: ExtractedDocument[]): ExtractedDocument {
+  const pages = parts.flatMap((part) => part.pages).map((page, index) => ({ ...page, pageNumber: index + 1 }));
+  return {
+    kind: parts[0]!.kind,
+    method: parts[0]!.method,
+    contentType: parts[0]!.contentType,
+    text: parts.map((part) => part.text).join('\f'),
+    confidence: Math.min(...parts.map((part) => part.confidence)),
+    pages,
+  };
+}
+
+/** Whether any of the text came from OCR, which reads a ruled table's lines as `[`, `|` and `]`. */
+function wasOcrd(document: ExtractedDocument): boolean {
+  return document.kind === 'image' || document.pages.some((page) => page.method === 'tesseract');
 }
 
 /** The pages a payout is read from: the covering letter, as `PAYOUT_OCR` reads it. */
