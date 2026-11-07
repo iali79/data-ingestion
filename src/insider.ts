@@ -51,7 +51,11 @@ function iso(year: number, month: number, day: number): string | null {
 }
 
 /** Dates as the notices write them: 2026-02-26, 29-01-2026, 06-Feb-26, 04-JUNE-26, 4/9/2025, and the typo 0409-2025. */
-export function readDate(text: string): string | null {
+export function readDate(raw: string): string | null {
+  // One stray space beside a separator ("21 -05-2025", "21- 05-2025") is still one date. Only inside a
+  // whole day-month-year with matching separators: a row number and the date after it ("1.   09-05-2024")
+  // must stay two things, or the date is lost (IBFL's notices were, in the 2026-11-06 replay).
+  const text = raw.replace(/\b(\d{1,2}) ?([-/.]) ?(\d{1,2}) ?\2 ?(\d{4}|\d{2})\b/gu, '$1$2$3$2$4');
   let m = /\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b/u.exec(text);
   if (m) return iso(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
   m = /\b(\d{1,2})[-/.\s]([A-Za-z]{3,9})[-/.\s,]*(\d{2,4})\b/u.exec(text);
@@ -82,8 +86,8 @@ function natureOf(word: string): 'buy' | 'sell' | 'other' {
   return 'other';
 }
 
-/** Words that sit in the form and market columns, so they are not part of a name. */
-const COLUMN_WORDS = /^(?:cdc|cds|ccd|physical|scrip|scrips|ready|future|futures|ndm|deal|odd|lot|negotiated|through|cc|market|block|off-market|\*)$/iu;
+/** Words that sit in the form and market columns, so they are not part of a name. OCR reads CDC as coc, c0c, cbc or odc. */
+const COLUMN_WORDS = /^(?:cdc|coc|c0c|cbc|odc|cds|ccd|physical|scrip|scrips|ready|future|futures|ndm|deal|odd|lot|negotiated|through|cc|market|block|off-market|\*)$/iu;
 
 interface Row {
   line: number;
@@ -91,7 +95,7 @@ interface Row {
   natureAt: number;
 }
 
-const END = /^\s*(?:we\s+confirm|you\s+may|yours|thanks|thank\s+you|sincerely|notes?\s*:?|cc\s*:|company\s+secretary|regards|please|very\s+truly|\*\s)/iu;
+const END = /^\s*(?:we\s+(?:further\s+|hereby\s+|also\s+)?confirm|you\s+may|yours|thanks|thank\s+you|sincerely|notes?\s*:?|cc\s*:|company\s+secretary|regards|please|very\s+truly|\*\s)/iu;
 
 const HEADER_WORD = /\b(?:certificates?|description|market|nature|rate|price|percentage|cumulative|shareholding|name\s+of|relevant|persons?|form\s+of|date|details?\s+of|trade|shares?)\b/iu;
 
@@ -127,8 +131,23 @@ function numbersFrom(line: string, from: number): Array<{ at: number; raw: strin
   return out;
 }
 
-export function parseInsiderDisclosure(text: string, options: { publishedAt?: Date } = {}): InsiderTransactionCandidate[] {
-  const lines = text.split(/\r?\n|\f/u);
+/**
+ * A line of OCR'd table, made readable for the row finder. PSX's own e-form (the "PUCARS" notice,
+ * filed as a GIF; about half of all disclosures since 2024) prints a ruled table whose cells are so
+ * tight that OCR runs the date into the nature ("2026-09-08BUY") and reads the rules as `[`, `|`
+ * and `]`. Rules become spaces of the same width, so the columns the row reader measures by stay
+ * where they are, and a nature word glued to the figure before it gets the space it lost.
+ */
+export function readableTableLine(line: string): string {
+  return line
+    .replace(/[|[\]{}]/gu, ' ')
+    .replace(/(\d)(?=(?:buy|bought|purchased?|sell|sold|sale)\b)/giu, '$1 ');
+}
+
+export function parseInsiderDisclosure(text: string, options: { publishedAt?: Date; ocr?: boolean } = {}): InsiderTransactionCandidate[] {
+  // Only OCR'd text: a text PDF's brackets are the company's own ("[formerly AGT Holdings]"), and
+  // blanking them lost six HPL notices in the 2026-11-06 replay.
+  const lines = text.split(/\r?\n|\f/u).map((line) => (options.ocr ? readableTableLine(line) : line));
   // The table starts at the header row naming the Nature column, and ends at the sign-off.
   let start = lines.findIndex((line) => /\bnature\b/iu.test(line));
   if (start < 0) start = 0;
@@ -214,11 +233,19 @@ export function parseInsiderDisclosure(text: string, options: { publishedAt?: Da
 /** Lines above or below a row's figures that can still belong to its name. */
 const BLOCK_REACH = 6;
 
+/** Columns left of the nature word a figure on a wrapped line may start at. */
+const WRAPPED_REACH = 4;
+
 function readRow(core: string, block: string[], row: Row, hasCumulative: boolean): InsiderTransactionCandidate | null {
   const nx = row.natureAt;
   // Numbers to the right of the nature column, in reading order across the whole block.
   const right: Array<{ at: number; raw: string; value: number }> = [];
-  for (const line of block) right.push(...numbersFrom(line, Math.max(0, nx - 1)).filter((n) => n.at >= nx - 1));
+  // On the row's own line the nature column is exact. A wrapped line's figures can sit a few columns
+  // left of it, where a centred cell prints them (EFUG's "725  120.00" over "Buy").
+  for (const line of block) {
+    const reach = line === core ? 1 : WRAPPED_REACH;
+    right.push(...numbersFrom(line, Math.max(0, nx - reach)).filter((n) => n.at >= nx - reach));
+  }
   // Drop a "Page 1 of 1" style tail and a footnote marker; keep the first four figures.
   let figures = right.filter((n) => !/%$/u.test(n.raw) || right.indexOf(n) >= 3);
   if (figures.length === 0) {
@@ -273,7 +300,9 @@ function readRow(core: string, block: string[], row: Row, hasCumulative: boolean
 
   const nameText = lefts
     .map((line) => line.slice(0, cut > 0 ? cut : line.length))
-    .map((s) => maskDates(s).replace(/^\s*\d{1,3}[.)]?\s*$/u, ' ').replace(/^\s*\d{1,3}[.)]?\s+(?=\S)/u, ' '))
+    // A name has no digits, so no token with one is part of it: a quantity printed in the name column
+    // ("Khalid Mumta Qazi   731   Buy", NICL) or half of a date split over lines ("20-Dec-", PPP).
+    .map((s) => maskDates(s).replace(/^\s*\d{1,3}[.)]?\s*$/u, ' ').replace(/^\s*\d{1,3}[.)]?\s+(?=\S)/u, ' ').replace(/\S*\d\S*/gu, ' '))
     .join(' ')
     .replace(/\s+/gu, ' ')
     .trim();

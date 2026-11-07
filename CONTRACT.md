@@ -40,6 +40,10 @@ response body is wrapped in `data`:
 - `reportType`: `annual | quarterly | half_yearly`
 - For `corporate_action_notice`, `context` is `{ "symbol", "title", "publishedAt" }` and
   `sourceUrl` may be `null` (the notice is parsed from its title alone).
+- A notice filed as scanned pages instead of a PDF has `sourceUrl` on its first page
+  (`https://dps.psx.com.pk/download/image/<post>-1.gif`) and, when it has more than one, `context.imageUrls`:
+  every page in order, starting with `sourceUrl`. Each page is read as an image (enlarged, OCR'd word by
+  word, lines rebuilt from the word boxes: `extractImage` in `src/extraction.ts`) and the pages are joined.
 - `sourceUrl` is always `https` on `financials.psx.com.pk` or `dps.psx.com.pk`; the extractor
   refuses anything else (`host_not_allowed`).
 - The lease lasts 30 minutes. The token authorises submitting a result for this one task only.
