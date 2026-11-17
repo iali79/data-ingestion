@@ -195,9 +195,12 @@ allowed hosts (`www.ogra.org.pk`, `www.pcga.org`, `www.sbp.org.pk`, `dps.psx.com
   - `pcga-cotton`: `{ region: "punjab" | "sindh" | "pakistan", district, arrivals, pressed, soldTcp, soldExporters, soldTextiles, soldTotal, unsold, unginned, lastYearArrivals, flow, factories, season }` (bales).
   - `sbp-credit`: `{ series, period, value }`, month-end outstanding in million rupees.
   - `psx-off-market`: `{ section: "m2m" | "c2c", rowNo, buyerCode, sellerCode, memberCode, company, shares, rate, value }`.
-- `checks` lists every arithmetic identity the parser ran (a printed total against its parts). **`rows` is empty whenever any check
+- `checks` lists every arithmetic identity the parser ran (a printed total against its parts). **`rows` is empty whenever a check
   failed**: a document that does not add up is delivered as nothing, with the failed checks named. The API treats an empty result
   with a failed check as a rejection and keeps the reason; it does not retry a download that cannot change.
+  - One exception, `ogra-prices` only: a failed check may carry `"advisory": true`. It means the crude build-up (benchmark to
+    ex-refinery price) does not add up in OGRA's own table; the build-up rows are left out and the pump-price chain is delivered.
+    OGRA's 12-19 August 2026 diesel tables are the example.
 - The API validates every row again against its dataset's closed lists and re-adds the same totals before writing.
 
 ### 2c. Failure

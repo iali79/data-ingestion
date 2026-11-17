@@ -8,8 +8,14 @@
  * position or by the formula letter, and every arithmetic identity the document states is checked
  * only when the rows it needs are present.
  *
- * A product is delivered only if every applicable identity holds to rounding. A figure that does
- * not add up is not delivered: the product comes back with no rows and the failed checks named.
+ * Two tiers of checks:
+ *  - the pump-price chain (ex-refinery price, margins, levies, the printed total): every applicable
+ *    identity must hold to rounding, or the product comes back with no rows and the failed checks named;
+ *  - the crude build-up (benchmark, freight, exchange rate, customs, up to the ex-refinery price): if it
+ *    does not add up, the build-up rows are left out and the pump-price chain is delivered, with the
+ *    failed check marked `advisory`. OGRA's own 12-19 August 2026 diesel tables do exactly this (the
+ *    printed ex-refinery price is 0.22 below its parts, and everything after it is consistent with the
+ *    printed figure), and refusing the day would throw away a pump price that is right.
  */
 
 export type OgraProduct = 'MS' | 'HSD';
@@ -55,6 +61,8 @@ export interface OgraCheck {
   id: string;
   ok: boolean;
   detail?: string;
+  /** A failed advisory check withholds the crude build-up rows but not the pump-price chain. */
+  advisory?: boolean;
 }
 
 export interface OgraPublication {
@@ -63,6 +71,12 @@ export interface OgraPublication {
   rows: OgraRow[];
   checks: OgraCheck[];
 }
+
+/** The rows that describe how the ex-refinery price was reached from the international benchmark. */
+export const BUILDUP_COMPONENTS: readonly OgraComponent[] = [
+  'platts', 'premium', 'freight', 'crack', 'cnfusd', 'fx', 'cnfpkr', 'incidentals', 'oceanloss', 'costport', 'fxadjustment', 'customs',
+];
+const BUILDUP_CHECKS = new Set(['cnfusd', 'cnfpkr', 'costport', 'exrefinery']);
 
 const TOLERANCE = 0.025;
 /** Cost & freight in rupees is a product of three rounded figures, so it gets a little more room. */
@@ -189,7 +203,7 @@ export function checksFor(values: Map<OgraComponent, number>): OgraCheck[] {
   const near = (id: string, actual: number | undefined, expected: number | null, tolerance = TOLERANCE) => {
     if (actual === undefined || expected === null) return;
     const ok = Math.abs(actual - expected) <= tolerance;
-    checks.push({ id, ok, ...(ok ? {} : { detail: `printed ${actual}, expected ${expected.toFixed(2)}` }) });
+    checks.push({ id, ok, ...(BUILDUP_CHECKS.has(id) ? { advisory: true } : {}), ...(ok ? {} : { detail: `printed ${actual}, expected ${expected.toFixed(2)}` }) });
   };
 
   const crude = (['platts', 'premium', 'freight', 'crack'] as const).filter((c) => values.has(c));
@@ -232,8 +246,12 @@ export function parsePricePublication(text: string): OgraPublication {
       ...checksFor(values),
     ].map((c) => ({ ...c, id: `${section.product}:${c.id}` }));
     checks.push(...own);
-    if (own.every((c) => c.ok)) {
-      for (const [component, value] of values) rows.push({ product: section.product, component, value });
+    if (own.every((c) => c.ok || c.advisory)) {
+      const buildupBroken = own.some((c) => !c.ok && c.advisory);
+      for (const [component, value] of values) {
+        if (buildupBroken && BUILDUP_COMPONENTS.includes(component)) continue;
+        rows.push({ product: section.product, component, value });
+      }
     }
   }
 

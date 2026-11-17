@@ -89,6 +89,24 @@ describe('older layouts', () => {
   });
 });
 
+describe('OGRA\'s own inconsistent build-up (12 Aug 2026 diesel)', () => {
+  const out = parsePricePublication(sample('price-publication-2026-08-12.txt'));
+  it('delivers the pump-price chain of both products', () => {
+    expect(out.effectiveDate).toBe('2026-08-12');
+    expect(value(out.rows, 'HSD', 'retail')).toBe(382.25);
+    expect(value(out.rows, 'HSD', 'exrefinery')).toBe(279.83);
+    expect(value(out.rows, 'HSD', 'pl')).toBe(76.28);
+    expect(value(out.rows, 'MS', 'retail')).toBeDefined();
+  });
+  it('withholds only the diesel crude build-up, and says why', () => {
+    expect(out.rows.filter((r) => r.product === 'HSD' && ['platts', 'fx', 'cnfpkr', 'customs', 'costport'].includes(r.component))).toEqual([]);
+    expect(value(out.rows, 'MS', 'platts')).toBeDefined();
+    const failed = out.checks.filter((c) => !c.ok);
+    expect(failed.map((c) => c.id)).toEqual(['HSD:exrefinery']);
+    expect(failed[0]).toMatchObject({ advisory: true });
+  });
+});
+
 describe('a document that does not add up', () => {
   const nov = sample('price-publication-2026-11-17.txt');
 
