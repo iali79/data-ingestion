@@ -61,7 +61,7 @@ async function main(): Promise<void> {
     if (outcome === 'rejected') stats.rejected += 1;
 
     console.log(
-      `task ${task.id} ${task.kind} ${task.context.symbol} -> ${describe(payload)} [${outcome}]${corpus.stats.hits > hitsBefore ? ' (corpus)' : ''} ${Math.round((Date.now() - started) / 1000)}s`,
+      `task ${task.id} ${task.kind} ${task.kind === 'market_document' ? task.context.dataset : task.context.symbol} -> ${describe(payload)} [${outcome}]${corpus.stats.hits > hitsBefore ? ' (corpus)' : ''} ${Math.round((Date.now() - started) / 1000)}s`,
     );
   }
 
@@ -75,6 +75,10 @@ function describe(payload: ResultPayload | FinancialsResult): string {
   if ('periods' in payload) {
     const reported = payload.periods.reduce((sum, period) => sum + [period.income, period.balance, period.cashFlow].reduce((n, figures) => n + Object.values(figures).filter((figure) => figure?.source === 'reported').length, 0), 0);
     return `periods=${payload.periods.length} reported=${reported} pages=${payload.document.pagesRead}/${payload.document.pageCount} dropped=${payload.log.drops.length}`;
+  }
+  if ('marketDocument' in payload) {
+    const { dataset, rows, checks } = payload.marketDocument;
+    return `${dataset} rows=${rows.length} checks_failed=${checks.filter((c) => !c.ok).length}`;
   }
   if ('statement' in payload) return `${payload.statement.status} lines=${payload.statement.lines.length}`;
   return `actions=${payload.corporateActions.length}${payload.insiderTransactions ? ` insider=${payload.insiderTransactions.length}` : ''}`;
@@ -93,7 +97,7 @@ function withTimeout(work: Promise<ResultPayload | FinancialsResult>, ms: number
 }
 
 function parseKinds(raw: string | undefined): TaskKind[] {
-  const all: TaskKind[] = ['financial_statement', 'corporate_action_notice'];
+  const all: TaskKind[] = ['financial_statement', 'corporate_action_notice', 'market_document'];
   if (!raw) return all;
   const picked = raw.split(',').map((kind) => kind.trim()).filter((kind): kind is TaskKind => all.includes(kind as TaskKind));
   return picked.length > 0 ? picked : all;

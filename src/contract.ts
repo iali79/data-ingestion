@@ -12,6 +12,7 @@ import type { CorporateActionCandidate, ConsolidationBasis, ParsedStatementLine,
 import type { MeetingCandidate } from './meeting.js';
 import type { InsiderTransactionCandidate } from './insider.js';
 import type { PayoutCandidate } from './payout.js';
+import type { MarketDataset, MarketDocumentPayload } from './market/index.js';
 
 export const SCHEMA_VERSION = 1;
 export const EXTRACTOR_VERSION = 11;
@@ -28,7 +29,7 @@ export const LIMITS = {
   errorMessageChars: 500,
 } as const;
 
-export type TaskKind = 'financial_statement' | 'corporate_action_notice';
+export type TaskKind = 'financial_statement' | 'corporate_action_notice' | 'market_document';
 
 export interface StatementTaskContext {
   symbol: string;
@@ -49,9 +50,15 @@ export interface NoticeTaskContext {
   imageUrls?: string[];
 }
 
+/** A public market document (OGRA prices, PCGA cotton arrivals, SBP credit, PSX off-market): one document, one dataset. */
+export interface MarketTaskContext {
+  dataset: MarketDataset;
+}
+
 export type ClaimedTask =
   | { id: string; kind: 'financial_statement'; sourceUrl: string; context: StatementTaskContext; leaseToken: string; leaseExpiresAt: string }
-  | { id: string; kind: 'corporate_action_notice'; sourceUrl: string | null; context: NoticeTaskContext; leaseToken: string; leaseExpiresAt: string };
+  | { id: string; kind: 'corporate_action_notice'; sourceUrl: string | null; context: NoticeTaskContext; leaseToken: string; leaseExpiresAt: string }
+  | { id: string; kind: 'market_document'; sourceUrl: string; context: MarketTaskContext; leaseToken: string; leaseExpiresAt: string };
 
 export type StatementStatus = 'complete' | 'partial' | 'low_confidence' | 'failed' | 'unsupported';
 
@@ -116,6 +123,7 @@ export type ResultPayload =
       pages: Array<{ pageNumber: number; method: string; confidence: number; text: string }>;
     })
   | (ResultEnvelope & { outcome: 'extracted'; document: DocumentSummary | null; corporateActions: CorporateActionPayload[]; meeting: MeetingPayload | null; insiderTransactions?: InsiderTransactionPayload[]; payout?: PayoutPayload | null })
+  | (ResultEnvelope & { outcome: 'extracted'; document: DocumentSummary | null; marketDocument: MarketDocumentPayload })
   | (ResultEnvelope & { outcome: 'failed'; error: { code: ExtractionErrorCode; message: string } });
 
 /** A board-meeting notice's meeting (CONTRACT.md, "Corporate-action notice"). */
