@@ -46,7 +46,7 @@ async function main(): Promise<void> {
   const release = await releases.ensureRelease(
     tag,
     `Document corpus ${tag.slice('corpus-'.length)}`,
-    'Page text extracted from public PSX filings. Machine-generated data, not a software release. See the README.',
+    'Page text extracted from public PSX filings. Machine-generated data, not a software release.',
   );
   const existing = await releases.listAssets(release.id);
 
