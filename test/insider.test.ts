@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cleanName, isInsiderDisclosureTitle, parseInsiderDisclosure, readDate, splitPerson } from '../src/insider.js';
+import { cleanName, isInsiderDisclosureTitle, parseInsiderDisclosure, readDate, splitPerson, tidyName } from '../src/insider.js';
 
 /** Layouts follow real PSX notices, with invented people and companies. */
 const STANDARD = `
@@ -45,7 +45,113 @@ const SHARED_NAME = `
 Yours Sincerely,
 `;
 
+/** A text-layer notice with whole-number rates and no cumulative columns (Systems Limited, September 2026). */
+const WHOLE_NUMBER_RATES = `
+Subject: Disclosure of Interest by a Director, CEO, substantial shareholder or executive of a listed
+company u/s 5.6.4 of the PSX Regulations
+    Name of Person                                                 Date of Trade Nature of                      No. of           Rate      Market
+                                                                                 Trade                          shares
+    Ms. Ammara Masood                                              11-Sep-2026            Sell                  500,000          117       Ready
+    (Senior Management)
+    Ms. Ammara Masood                                              18-Sep-2026            Sell                  203,000          122.14    Ready
+    (Senior Management)
+    Ms. Ammara Masood                                              23-Sep-2026            Sell                  100,000          122       Ready
+    (Senior Management)
+We confirm that the said transaction(s) will be presented in the subsequent board meeting of the
+`;
+
+/** The number of shares sits before the nature column; the second row repeats the person's trade. */
+const QUANTITY_BEFORE_NATURE = `
+Subject: Transaction of Shares - Disclosure of Interest under PSX Regulations
+details are as follows:
+                                                    Nature of   Rate per                     Form of Share
+ S. No.            Name          No. of Shares   Transaction  share (Rs.)       Date          Certificates
+       1    Example Person            500           Buy         115.50       30.01.2024    Electronically - CDC
+                                      500           Buy         116.00       30.01.2024    Electronically - CDC
+                                    1,000
+You may please inform the TRE Certificate holders of the Exchange accordingly.
+`;
+
+/** A letterhead under the table prints addresses and telephone numbers; they are not part of the name. */
+const LETTERHEAD_BELOW = `
+details are as under:
+      Name        of                                   Details of Transaction(s)                          Cumulative Shareholding
+Sr.   Relevant
+No.   Person(s) with           Form of
+                                                                                         No. of                      No. of
+      Description               Share         Market          Date           Nature    Shares      Rate        Shares       Percentage
+                             Certificate(s)
+      M/s.     Example
+      Holdings (Pvt.)
+      Ltd.
+1.                                CDC         Ready        19-12-2024          Buy          165    350.00      285,040,487    91.80%
+      (Substantial
+      Shareholder/
+      Sponsor)
+                                                                         Example Centre,           Example Centre,         Example Centre,
+                                                                         15-Cub Road,               11-B, Lala Zar,         1- Ahmad Block,
+                                                                         Faisalabad,                M. T. Khan Road,        New Garden Town,
+                                                                         Pakistan.                  Karachi, Pakistan.
+                                                                                 1
+                                                                         Tel 92 41 2617836
+                                                                         Fax 92 41 2617842
+`;
+
 describe('insider disclosure notices', () => {
+  it('reads a table that prints the quantity before the nature column', () => {
+    const rows = parseInsiderDisclosure(QUANTITY_BEFORE_NATURE, { publishedAt: new Date('2024-02-01') });
+    expect(rows.map((r) => [r.date, r.person, r.nature, r.quantity, r.rate])).toEqual([
+      ['2024-01-30', 'Example Person', 'buy', 500, 115.5],
+      ['2024-01-30', 'Example Person', 'buy', 500, 116],
+    ]);
+  });
+
+  it('keeps a letterhead printed under the table out of the last row', () => {
+    const [row] = parseInsiderDisclosure(LETTERHEAD_BELOW, { publishedAt: new Date('2024-12-20') });
+    expect(row).toMatchObject({ date: '2024-12-19', person: 'M/s. Example Holdings (Pvt.) Ltd.', nature: 'buy', quantity: 165, rate: 350, cumulativeShares: 285_040_487 });
+  });
+
+  it('reads a whole-number rate as the rate when the table has no cumulative columns', () => {
+    const rows = parseInsiderDisclosure(WHOLE_NUMBER_RATES, { publishedAt: new Date('2026-10-01') });
+    expect(rows.map((r) => [r.date, r.quantity, r.rate, r.cumulativeShares, r.designation])).toEqual([
+      ['2026-09-11', 500_000, 117, null, 'Senior Management'],
+      ['2026-09-18', 203_000, 122.14, null, 'Senior Management'],
+      ['2026-09-23', 100_000, 122, null, 'Senior Management'],
+    ]);
+  });
+
+  it('trims scan debris from the ends of a name and refuses what stays broken', () => {
+    expect(tidyName('C c LSE Ventures Limited')).toBe('LSE Ventures Limited');
+    expect(tidyName('Yoi:• u Muhammad Sohail Khan')).toBe('Muhammad Sohail Khan');
+    expect(tidyName('Mr. Farhan Abbas Sheikh June')).toBe('Mr. Farhan Abbas Sheikh');
+    expect(tidyName('Certifi M/s. Example Holdings (Pvt.) Ltd.')).toBe('M/s. Example Holdings (Pvt.) Ltd.');
+    expect(tidyName('Tran Example Person')).toBe('Example Person');
+    expect(tidyName('Example Person - Preference Substantial Shareholder')).toBe('Example Person');
+    expect(cleanName(tidyName('Ce l. !Mr. Javed Ahmed ,Executive of rA,foezan Bank)'))).toBe(false);
+  });
+
+  it('does not read a row number or a rate as the holding after the trade', () => {
+    const SERIAL = `
+details are as under:
+  Name of Person        Market    Date          Nature    No. of shares    Rate      Cumulative shares   %
+  Artistic Holdings Ltd   Ready   12-03-2026    Purchase     250,000       81.95     1
+  Muhammad Aminuddin      Ready   13-03-2026    Purchase     500,000       10
+Yours Sincerely,
+`;
+    const [first, second] = parseInsiderDisclosure(SERIAL, { publishedAt: new Date('2026-03-14') });
+    expect(first).toMatchObject({ quantity: 250_000, rate: 81.95, cumulativeShares: null });
+    // Only two figures on a purchase: the second is below the shares bought, so it is the rate.
+    expect(second).toMatchObject({ quantity: 500_000, rate: 10, cumulativeShares: null });
+  });
+
+  it('refuses scan debris and a bare role as a person', () => {
+    expect(cleanName('& Industries Ltd. wa i Al-No')).toBe(false);
+    expect(cleanName('Substantial')).toBe(false);
+    expect(cleanName('Mr. A. B. Khan')).toBe(true);
+    expect(cleanName('National Investment (Unit) Trust')).toBe(true);
+    expect(cleanName('Ms. Ammara Masood')).toBe(true);
+  });
+
   it('reads a standard PSX table: person, role, date, nature, quantity, rate and cumulative holding', () => {
     const [row] = parseInsiderDisclosure(STANDARD, { publishedAt: new Date('2026-02-06') });
     expect(row).toMatchObject({ date: '2026-02-04', person: 'Zara Example', designation: 'Elected Director', nature: 'buy', quantity: 27_500, rate: 39.36, market: 'Ready', cumulativeShares: 1_490_772, cumulativePercent: 2 });

@@ -5,7 +5,7 @@ the API validates every field again on its side — unknown fields are dropped, 
 lists, and anything outside the limits below is rejected.
 
 Current versions: `schemaVersion` **2** for financial statements and **1** for corporate-action
-notices; `extractorVersion` **9**.
+notices; `extractorVersion` **10**.
 
 ## Authentication
 
@@ -40,6 +40,10 @@ response body is wrapped in `data`:
 - `reportType`: `annual | quarterly | half_yearly`
 - For `corporate_action_notice`, `context` is `{ "symbol", "title", "publishedAt" }` and
   `sourceUrl` may be `null` (the notice is parsed from its title alone).
+- A notice filed as scanned pages instead of a PDF has `sourceUrl` on its first page
+  (`https://dps.psx.com.pk/download/image/<post>-1.gif`) and, when it has more than one, `context.imageUrls`:
+  every page in order, starting with `sourceUrl`. Each page is read as an image (enlarged, OCR'd word by
+  word, lines rebuilt from the word boxes: `extractImage` in `src/extraction.ts`) and the pages are joined.
 - `sourceUrl` is always `https` on `financials.psx.com.pk` or `dps.psx.com.pk`; the extractor
   refuses anything else (`host_not_allowed`).
 - The lease lasts 30 minutes. The token authorises submitting a result for this one task only.
@@ -139,6 +143,33 @@ What the API does again on its side, whatever the payload says:
   whole number of shares, `rate` the price per share or `null`; `cumulativeShares` and `cumulativePercent`
   are the person's holding after the trade, or `null`. The receiving side checks every row against the
   notice's publish date and drops one dated in the future or long before it.
+
+- `payout` is sent for a notice titled as results, a dividend or a book closure (`src/payout.ts`):
+  what the Board declared and when the share register closes, read from the covering letter
+  (the first three pages; scanned pages are OCR'd). `null` when the notice declares no entitlement;
+  absent for any other notice.
+
+```json
+"payout": {
+  "periodEnded": "2019-06-30",
+  "resultsPeriod": "annual",
+  "instalment": "final",
+  "cashPercent": 65,
+  "cashPerShare": null,
+  "bonusPercent": 0,
+  "rightPercent": 0,
+  "bookClosureFrom": "2019-09-13",
+  "bookClosureTo": "2019-09-27",
+  "confidence": 0.85,
+  "sourceText": "Cash Dividend 65% (ii) Bonus Shares Nil (iii) Right Shares Nil ..."
+}
+```
+
+  Percentages are of face value, as PSX states them, 0 to 10,000; `0` is a stated "Nil", `null`
+  not stated. `cashPerShare` is rupees per share when the notice gives it. Dates are `YYYY-MM-DD`
+  or `null`; `resultsPeriod` is `quarter | half_year | annual` and `instalment` `final | interim`,
+  each or `null`. The ex-date is not in the notice and is not sent: the receiving side derives
+  it, and only stages the payout until an operator applies it.
 
 ### 2c. Failure
 

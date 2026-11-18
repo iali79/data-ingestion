@@ -93,14 +93,14 @@ export function parseTime(fragment: string): string | null {
 }
 
 /** OCR reads `2026` as `2O26` and `05` as `O5`; letters inside digit runs are put back. */
-function repairDigits(text: string): string {
+export function repairDigits(text: string): string {
   return text.replace(/(?<=\d)[Oo](?=\d)|(?<=\d)[Oo]\b|\b[Oo](?=\d)/gu, '0');
 }
 
 const RESULTS = /\b(accounts|financial\s+(?:statements?|results?|information|reports?)|results|quarterly|half[- ]yearly|annual\s+report)\b/iu;
 const NOT_RESULTS = /\b(?:other\s+than\s+(?:the\s+)?financ|non[- ]financial|matters\s+other\s+than)/iu;
 
-function resultsPeriodOf(text: string): { resultsPeriod: MeetingCandidate['resultsPeriod']; periodEnded: string | null } {
+export function resultsPeriodOf(text: string): { resultsPeriod: MeetingCandidate['resultsPeriod']; periodEnded: string | null } {
   const ended = /\b(year|yearly|annual|period|quarter|(?:three|six|nine|3|6|9)\s+months|half[- ]year(?:ly)?)\s+ended(?:\s+on)?\s+/iu.exec(text);
   if (!ended) return { resultsPeriod: /\b(annual|yearly)\b/iu.test(text) ? 'annual' : /\bhalf[- ]year/iu.test(text) ? 'half_year' : /\bquarter/iu.test(text) ? 'quarter' : null, periodEnded: null };
   const after = text.slice(ended.index + ended[0].length, ended.index + ended[0].length + 40);

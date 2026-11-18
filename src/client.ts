@@ -12,6 +12,16 @@ export class IngestAuthError extends Error {}
 const RETRIES = 3;
 const REQUEST_TIMEOUT_MS = 60_000;
 
+/**
+ * The request body as JSON text, with NUL characters dropped from every string. Text read from a scanned
+ * filing can carry one, and the server's database refuses it (Postgres 22P05): the save returned a 500
+ * and the same payload was retried until the lease ran out (seen 2026-10-21, twelve times in a burst).
+ * NUL means nothing in a figure or a name. The server drops it too; this keeps a task from depending on that.
+ */
+export function encodeBody(body: unknown): string {
+  return JSON.stringify(body, (_key, value) => (typeof value === 'string' ? value.replaceAll('\u0000', '') : value));
+}
+
 export class IngestClient {
   private readonly base: URL;
 
@@ -52,7 +62,7 @@ export class IngestClient {
 
   private async post(path: string, body: unknown): Promise<Response> {
     const url = new URL(path, this.base);
-    const encoded = JSON.stringify(body);
+    const encoded = encodeBody(body);
     let lastError: unknown;
     for (let attempt = 0; attempt <= RETRIES; attempt++) {
       const controller = new AbortController();

@@ -51,7 +51,11 @@ function iso(year: number, month: number, day: number): string | null {
 }
 
 /** Dates as the notices write them: 2026-02-26, 29-01-2026, 06-Feb-26, 04-JUNE-26, 4/9/2025, and the typo 0409-2025. */
-export function readDate(text: string): string | null {
+export function readDate(raw: string): string | null {
+  // One stray space beside a separator ("21 -05-2025", "21- 05-2025") is still one date. Only inside a
+  // whole day-month-year with matching separators: a row number and the date after it ("1.   09-05-2024")
+  // must stay two things, or the date is lost (IBFL's notices were, in the 2026-11-06 replay).
+  const text = raw.replace(/\b(\d{1,2}) ?([-/.]) ?(\d{1,2}) ?\2 ?(\d{4}|\d{2})\b/gu, '$1$2$3$2$4');
   let m = /\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b/u.exec(text);
   if (m) return iso(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
   m = /\b(\d{1,2})[-/.\s]([A-Za-z]{3,9})[-/.\s,]*(\d{2,4})\b/u.exec(text);
@@ -82,8 +86,8 @@ function natureOf(word: string): 'buy' | 'sell' | 'other' {
   return 'other';
 }
 
-/** Words that sit in the form and market columns, so they are not part of a name. */
-const COLUMN_WORDS = /^(?:cdc|cds|ccd|physical|scrip|scrips|ready|future|futures|ndm|deal|odd|lot|negotiated|through|cc|market|block|off-market|\*)$/iu;
+/** Words that sit in the form and market columns, so they are not part of a name. OCR reads CDC as coc, c0c, cbc or odc. */
+const COLUMN_WORDS = /^(?:cdc|coc|c0c|cbc|odc|cds|ccd|physical|scrip|scrips|ready|future|futures|ndm|deal|odd|lot|negotiated|through|cc|market|block|off-market|\*)$/iu;
 
 interface Row {
   line: number;
@@ -91,9 +95,9 @@ interface Row {
   natureAt: number;
 }
 
-const END = /^\s*(?:we\s+confirm|you\s+may|yours|thanks|thank\s+you|sincerely|notes?\s*:?|cc\s*:|company\s+secretary|regards|please|very\s+truly|\*\s)/iu;
+const END = /^\s*(?:we\s+(?:further\s+|hereby\s+|also\s+)?confirm|you\s+may|yours|thanks|thank\s+you|sincerely|notes?\s*:?|cc\s*:|company\s+secretary|regards|please|very\s+truly|\*\s)/iu;
 
-const HEADER_WORD = /\b(?:certificates?|description|market|nature|rate|price|percentage|cumulative|shareholding|name\s+of|relevant|persons?|form\s+of|date|details?\s+of)\b/iu;
+const HEADER_WORD = /\b(?:certificates?|description|market|nature|rate|price|percentage|cumulative|shareholding|name\s+of|relevant|persons?|form\s+of|date|details?\s+of|trade|shares?)\b/iu;
 
 /** A line of column titles: two or more different title words and no date. A name that happens to be "Person" is one word. */
 function isHeaderLine(line: string): boolean {
@@ -127,8 +131,23 @@ function numbersFrom(line: string, from: number): Array<{ at: number; raw: strin
   return out;
 }
 
-export function parseInsiderDisclosure(text: string, options: { publishedAt?: Date } = {}): InsiderTransactionCandidate[] {
-  const lines = text.split(/\r?\n|\f/u);
+/**
+ * A line of OCR'd table, made readable for the row finder. PSX's own e-form (the "PUCARS" notice,
+ * filed as a GIF; about half of all disclosures since 2024) prints a ruled table whose cells are so
+ * tight that OCR runs the date into the nature ("2026-09-08BUY") and reads the rules as `[`, `|`
+ * and `]`. Rules become spaces of the same width, so the columns the row reader measures by stay
+ * where they are, and a nature word glued to the figure before it gets the space it lost.
+ */
+export function readableTableLine(line: string): string {
+  return line
+    .replace(/[|[\]{}]/gu, ' ')
+    .replace(/(\d)(?=(?:buy|bought|purchased?|sell|sold|sale)\b)/giu, '$1 ');
+}
+
+export function parseInsiderDisclosure(text: string, options: { publishedAt?: Date; ocr?: boolean } = {}): InsiderTransactionCandidate[] {
+  // Only OCR'd text: a text PDF's brackets are the company's own ("[formerly AGT Holdings]"), and
+  // blanking them lost six HPL notices in the 2026-11-06 replay.
+  const lines = text.split(/\r?\n|\f/u).map((line) => (options.ocr ? readableTableLine(line) : line));
   // The table starts at the header row naming the Nature column, and ends at the sign-off.
   let start = lines.findIndex((line) => /\bnature\b/iu.test(line));
   if (start < 0) start = 0;
@@ -168,6 +187,10 @@ export function parseInsiderDisclosure(text: string, options: { publishedAt?: Da
   const below = region.length - 1 - rows[rows.length - 1]!.line;
   const mode: 'first' | 'last' | 'centred' = above === 0 ? 'first' : below === 0 ? 'last' : 'centred';
 
+  // Whether the table has columns for the holding after the trade. Without them the second figure of
+  // a row is the rate even when it prints as a whole number (Systems Limited: "500,000  117  Ready").
+  const hasCumulative = /cumulative|shareholding|holding|percentage|number\s+of\s+shares|%/iu.test(region.slice(0, rows[0]!.line).join(' '));
+
   const out: InsiderTransactionCandidate[] = [];
   rows.forEach((row, index) => {
     const prev = rows[index - 1]?.line ?? -1;
@@ -184,9 +207,13 @@ export function parseInsiderDisclosure(text: string, options: { publishedAt?: Da
       top = index === 0 ? headerEnd + 1 : Math.floor((prev + row.line) / 2) + 1;
       bottom = index === rows.length - 1 ? region.length - 1 : Math.floor((row.line + next - 1) / 2);
     }
+    // A name wraps over a few lines at most. Further out are the next row's lines or the letterhead's
+    // addresses and telephone numbers printed under the table (Ibrahim Holdings' notice read none because of them).
+    top = Math.max(top, row.line - BLOCK_REACH);
+    bottom = Math.min(bottom, row.line + BLOCK_REACH);
     const block = region.slice(top, bottom + 1);
     const core = region[row.line]!;
-    const parsed = readRow(core, block, row);
+    const parsed = readRow(core, block, row, hasCumulative);
     if (parsed) out.push(parsed);
   });
   let last: { person: string; designation: string | null } | null = null;
@@ -203,11 +230,22 @@ export function parseInsiderDisclosure(text: string, options: { publishedAt?: Da
   return named.filter((t) => plausible(t, options.publishedAt));
 }
 
-function readRow(core: string, block: string[], row: Row): InsiderTransactionCandidate | null {
+/** Lines above or below a row's figures that can still belong to its name. */
+const BLOCK_REACH = 6;
+
+/** Columns left of the nature word a figure on a wrapped line may start at. */
+const WRAPPED_REACH = 4;
+
+function readRow(core: string, block: string[], row: Row, hasCumulative: boolean): InsiderTransactionCandidate | null {
   const nx = row.natureAt;
   // Numbers to the right of the nature column, in reading order across the whole block.
   const right: Array<{ at: number; raw: string; value: number }> = [];
-  for (const line of block) right.push(...numbersFrom(line, Math.max(0, nx - 1)).filter((n) => n.at >= nx - 1));
+  // On the row's own line the nature column is exact. A wrapped line's figures can sit a few columns
+  // left of it, where a centred cell prints them (EFUG's "725  120.00" over "Buy").
+  for (const line of block) {
+    const reach = line === core ? 1 : WRAPPED_REACH;
+    right.push(...numbersFrom(line, Math.max(0, nx - reach)).filter((n) => n.at >= nx - reach));
+  }
   // Drop a "Page 1 of 1" style tail and a footnote marker; keep the first four figures.
   let figures = right.filter((n) => !/%$/u.test(n.raw) || right.indexOf(n) >= 3);
   if (figures.length === 0) {
@@ -215,13 +253,31 @@ function readRow(core: string, block: string[], row: Row): InsiderTransactionCan
     const beforeDate = core.slice(0, nx).replace(/\b\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}\b|\b20\d{2}-\d{2}-\d{2}\b/gu, ' ');
     figures = numbersFrom(beforeDate, 0).filter((n) => n.value > 0);
   }
+  // Some tables put the number of shares before the nature column ("500  Buy  115.50  30.01.2024"): the
+  // first figure after the nature is then the rate, with a decimal point, and the quantity is the whole
+  // number just left of the nature.
+  if (figures[0] && figures[0].raw.includes('.')) {
+    const nearLeft = numbersFrom(core.slice(0, nx), Math.max(0, nx - 40)).filter((n) => Number.isInteger(n.value) && n.value > 0);
+    const before = nearLeft[nearLeft.length - 1];
+    if (before) figures = [before, ...figures];
+  }
   const quantity = figures[0];
   if (!quantity || !Number.isInteger(quantity.value) || quantity.value <= 0) return null;
-  // The rate has a decimal point; an integer rate is accepted when a fourth figure follows (cumulative shares).
-  const rateToken = figures[1] && (figures[1].raw.includes('.') || figures.length >= 4) ? figures[1] : null;
+  const nature = natureOf(row.nature);
+  // The rate has a decimal point; an integer rate is accepted when a fourth figure follows (cumulative shares)
+  // or when the table has no cumulative columns for the second figure to be.
+  let rateToken = figures[1] && (figures[1].raw.includes('.') || figures.length >= 4 || !hasCumulative) ? figures[1] : null;
   const cumulative = figures.slice(rateToken ? 2 : 1);
-  const cumShares = cumulative.find((n) => Number.isInteger(n.value) && n.value >= 0 && !n.raw.includes('.'));
+  let cumShares = cumulative.find((n) => Number.isInteger(n.value) && n.value >= 0 && !n.raw.includes('.'));
   const cumPercent = [...cumulative].reverse().find((n) => n !== cumShares && n.value >= 0 && n.value <= 100);
+  // A holding after a trade is never under a hundred shares, and after a purchase never under the shares
+  // bought. A smaller whole number there is a row number ("1", "2") or a whole-rupee rate read as the holding.
+  if (cumShares && !rateToken && nature === 'buy' && cumShares.value < quantity.value && cumShares.value <= 100_000) {
+    rateToken = cumShares;
+    cumShares = undefined;
+  } else if (cumShares && (cumShares.value < 100 || (nature === 'buy' && cumShares.value < quantity.value))) {
+    cumShares = undefined;
+  }
 
   // Left of the nature column: person, designation, form, market, date.
   const leftOf = (line: string) => line.slice(0, Math.max(nx, 0));
@@ -244,14 +300,18 @@ function readRow(core: string, block: string[], row: Row): InsiderTransactionCan
 
   const nameText = lefts
     .map((line) => line.slice(0, cut > 0 ? cut : line.length))
-    .map((s) => maskDates(s).replace(/^\s*\d{1,3}[.)]?\s*$/u, ' ').replace(/^\s*\d{1,3}[.)]?\s+(?=\S)/u, ' '))
+    // A name has no digits, so no token with one is part of it: a quantity printed in the name column
+    // ("Khalid Mumta Qazi   731   Buy", NICL) or half of a date split over lines ("20-Dec-", PPP).
+    .map((s) => maskDates(s).replace(/^\s*\d{1,3}[.)]?\s*$/u, ' ').replace(/^\s*\d{1,3}[.)]?\s+(?=\S)/u, ' ').replace(/\S*\d\S*/gu, ' '))
     .join(' ')
     .replace(/\s+/gu, ' ')
     .trim();
   const split = splitPerson(nameText);
   // A row whose name is blank or garbled keeps its figures: the name is carried down from the row above (several trades by one person print the name once).
-  const named = cleanName(split.person);
-  const person = named ? split.person : '';
+  const tidy = tidyName(split.person);
+  const named = cleanName(tidy);
+  const person = named ? tidy : '';
+  if (named && tidy !== split.person) confidence = Math.min(confidence, 0.75);
   const designation = split.designation;
 
   const marketMatch = /\b(Ready|Futures?|NDM|Deal|Negotiated|Odd\s*lot|Block)\b/iu.exec(lefts.join(' '));
@@ -259,7 +319,7 @@ function readRow(core: string, block: string[], row: Row): InsiderTransactionCan
     date,
     person,
     designation,
-    nature: natureOf(row.nature),
+    nature,
     quantity: quantity.value,
     rate: rateToken ? rateToken.value : null,
     market: marketMatch ? marketMatch[1]!.replace(/\s+/gu, ' ') : null,
@@ -280,7 +340,50 @@ function firstDataColumn(left: string): number {
 }
 
 const HEADER_WORDS = /^(?:buyer|seller|certificates?|certificate\(s\)|description|relevant|person\(s\)|date|nature|rate|price|market|transactions?|cumulative|shareholding|percentage|average|name:?)$/iu;
-const DESIGNATION = /\b(?:director|ceo|chief|executive|chairman|chairperson|substantial|shareholder|sponsor|spouse|elected|independent|nominee|secretary|cfo|officer|employee|head|manager|president|trustee|minor|associate)\b/iu;
+const DESIGNATION = /\b(?:director|ceo|chief|executive|chairman|chairperson|substantial|shareholder|sponsor|spouse|elected|independent|nominee|secretary|cfo|officer|employee|head|manager|management|senior|president|trustee|minor|associate)\b/iu;
+
+/** Short words a real name has: honorifics, particles, initials with a stop. Anything else this short is scan debris. */
+const NAME_PARTICLE = /^(?:mr|mrs|ms|m\/s|miss|dr|m|md|of|al|el|bin|bint|ur|ul|ud|un|hj|hafiz|sh|mst|ch|rao|sir|late|jr|sr|ii|iii|iv|ltd|co|pvt|inc|and)\.?$/iu;
+
+/** A word of a printed name: capitalised or all capitals, with the stops, brackets and commas names carry. */
+const NAME_WORD = /^\(?[A-Z][A-Za-z.'’\-/&()]*[.,)]*$|^[(&]$/u;
+const NAME_LOWER = /^(?:of|bin|bint|and|al|ur|ul|ud|un|el|de|van|von|the|\(pvt\.?\)|pvt\.?|ltd\.?)$/iu;
+
+/**
+ * A name read from a scan or an awkward text layer, with the debris at its ends removed: stray one or
+ * two letter fragments ("C c LSE Ventures") and tokens carrying symbols ("Yoi:• u Muhammad Sohail Khan").
+ * Only the ends are trimmed; a name that is still broken in the middle fails `cleanName`.
+ */
+const EDGE_VOCABULARY = ['buyer', 'seller', 'certificates', 'certificate', 'description', 'relevant', 'date', 'nature', 'rate', 'market', 'transactions', 'transaction', 'cumulative', 'shareholding', 'percentage', 'name', 'thanking', 'thanks', 'you', 'yours', 'sincerely', 'regards', 'faithfully'];
+/** A clipped column title or letter closing at the end of a name ("Certifi", "Tran", "Thanking You"). */
+function isEdgeDebris(w: string): boolean {
+  const t = w.toLowerCase().replace(/[^a-z]/gu, '');
+  return t.length >= 3 && EDGE_VOCABULARY.some((v) => v.startsWith(t));
+}
+
+export function tidyName(name: string): string {
+  const junk = (w: string) => /^(?:s\.?\s?no\.?|sr\.?|no\.?)$/iu.test(w) || isEdgeDebris(w) || /[^A-Za-z.'’&()\-,/]/u.test(w) || (w.replace(/[^A-Za-z]/gu, '').length <= 2 && !NAME_PARTICLE.test(w) && !/^[A-Za-z]\.$/u.test(w));
+  const words = name.replace(/[{]/gu, '(').replace(/[}]/gu, ')').split(/\s+/u).filter(Boolean);
+  while (words.length > 0 && junk(words[0]!)) words.shift();
+  // A date's month word can run on from the next column ("Sheikh June").
+  while (words.length > 0 && (junk(words[words.length - 1]!) || /^(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?$/iu.test(words[words.length - 1]!))) words.pop();
+  // A role cut off mid-bracket ("(Executi ve") is not part of the name.
+  return stripRoles(words.join(' ').replace(/\s*\([^)]*$/u, '').trim());
+}
+
+/** A role printed with the name ("Smith (Director)", "- Preference Substantial Shareholder") is the designation's, not the person's. */
+function stripRoles(name: string): string {
+  let out = name;
+  for (let i = 0; i < 3; i += 1) {
+    out = out
+      .replace(/\s*\([^)]*(?:director|shareholder|sponsor|executive|ceo|management|officer)[^)]*\)?\s*$/iu, '')
+      .replace(/\s*[-–]\s*(?:preference\s+)?(?:substantial\s*)?(?:shareholder)?\s*$/iu, '')
+      .replace(/\s+(?:substantial\s+)?shareholder\s*$/iu, '')
+      .replace(/^(?:substantial\s+)?shareholder\s+/iu, '')
+      .trim();
+  }
+  return out;
+}
 
 /** A person or company name, not column titles or leftovers: 2 to 8 words, letters, no digits. */
 export function cleanName(name: string): boolean {
@@ -288,6 +391,15 @@ export function cleanName(name: string): boolean {
   if (words.length < 2 && !/^[A-Z][a-z]{3,}$/u.test(name)) return false;
   if (words.length > 9 || /\d/u.test(name)) return false;
   if (words.some((w) => HEADER_WORDS.test(w))) return false;
+  // A name that starts on a symbol is a cut-off fragment ("& Industries Ltd."), and one made only of
+  // role words ("Substantial") is a designation that lost its person.
+  if (/^[^A-Za-z]/u.test(name) || words.every((w) => DESIGNATION.test(w))) return false;
+  // Scan debris: two or more stray one or two letter fragments ("... wa i Al-No").
+  const stray = words.filter((w) => w.replace(/[^A-Za-z]/gu, '').length <= 2 && !NAME_PARTICLE.test(w) && !/^[A-Za-z]\.$/u.test(w)).length;
+  if (stray >= 2) return false;
+  // A name is made of capitalised words; lowercase fragments and symbol-laden tokens in it are scan noise.
+  const bad = words.filter((w) => !NAME_WORD.test(w) && !NAME_LOWER.test(w)).length;
+  if (bad / words.length > 0.2) return false;
   return /[A-Za-z]{3,}/u.test(name);
 }
 

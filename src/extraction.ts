@@ -36,8 +36,19 @@ export interface ExtractedDocument {
  * - `always`: every sparse page, up front (notices, where any page may carry the entitlement).
  * - `if-needed`: read the text layer first and OCR only when `needsOcr` says the text layer is
  *   not enough. Readable filings -- the large majority -- then never touch tesseract.
+ * - `leading`: only sparse pages among the first `pages`. A results notice is a one- or two-page
+ *   covering letter (entitlements, book closure) followed by 10 to 40 pages of statements; the
+ *   letter is all a payout is read from, so the statements are not OCR'd.
  */
-export type OcrPolicy = { mode: 'always' } | { mode: 'if-needed'; needsOcr: (document: ExtractedDocument) => boolean };
+export type OcrPolicy =
+  | { mode: 'always' }
+  | { mode: 'if-needed'; needsOcr: (document: ExtractedDocument) => boolean }
+  | { mode: 'leading'; pages: number };
+
+/** Whether a document's first `pages` pages carry text (native or OCR'd), so `leading` OCR has nothing left to do. */
+export function leadingPagesRead(document: ExtractedDocument, pages: number): boolean {
+  return document.pages.slice(0, pages).every((page) => page.method !== 'sparse');
+}
 
 /**
  * Version of the page text this module produces. Bump it whenever the text for the same document
@@ -161,13 +172,15 @@ async function extractPdf(buffer: Buffer, contentType: string | null, policy: Oc
     if (sparse.length === 0) return textOnly();
     if (policy.mode === 'if-needed' && !policy.needsOcr(textOnly())) return textOnly();
 
-    if (await commandAvailable('tesseract')) {
-      const replacements = await ocrPdfPages(
+    const toOcr = policy.mode === 'leading' ? sparse.filter((page) => page.pageNumber <= policy.pages) : sparse;
+    let replacements = new Map<number, { text: string; confidence: number }>();
+    if (toOcr.length > 0 && (await commandAvailable('tesseract'))) {
+      replacements = await ocrPdfPages(
         pdf,
         dir,
-        sparse.map((page) => page.pageNumber),
+        toOcr.map((page) => page.pageNumber),
       ).catch(() => new Map<number, { text: string; confidence: number }>());
-      for (const page of sparse) {
+      for (const page of toOcr) {
         const replacement = replacements.get(page.pageNumber);
         if (replacement && replacement.text.trim().length > page.text.trim().length) {
           page.method = 'tesseract';
@@ -185,7 +198,9 @@ async function extractPdf(buffer: Buffer, contentType: string | null, policy: Oc
       text: pages.map((page) => page.text).join('\f'),
       confidence: averageConfidence(pages),
       pages,
-      ocr: 'complete',
+      // A page OCR could not read is `skipped` too, so saved text missing it is extracted again
+      // rather than reused as if complete. A page OCR read as blank stays sparse but counts as done.
+      ocr: toOcr.length < sparse.length || toOcr.some((page) => !replacements.has(page.pageNumber)) ? 'skipped' : 'complete',
     };
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -216,22 +231,35 @@ async function ocrPdfPages(
   await Promise.all(
     Array.from({ length: lanes }, async () => {
       for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
-        out.set(next, await runTesseract(filesByPage.get(next)!));
+        // A page that fails is left out on its own; the others keep their text.
+        const result = await runTesseract(filesByPage.get(next)!).catch(() => null);
+        if (result) out.set(next, result);
       }
     }),
   );
   return out;
 }
 
+/**
+ * An image document: PSX notices filed as scanned pages, and nothing else in practice. Most are PSX's
+ * own e-form, a GIF about 800 pixels wide whose ruled table OCR reads badly at that size ("ANDLEES
+ * [ausaR", a date run into the nature). Measured on 2026-11-06 against such a notice: enlarged three
+ * times and read word by word (`--psm 11`), with the lines rebuilt from where each word sits
+ * (`layoutFromTsv`), every field of its row came out right; the plain reading gave the parser
+ * nothing. The image is enlarged only when ImageMagick is installed (the workflows install it);
+ * without it the original is read the same way.
+ */
 async function extractImage(buffer: Buffer, ext: string, contentType: string | null): Promise<ExtractedDocument> {
   const dir = await mkdtemp(path.join(tmpdir(), 'report-image-'));
   try {
     const file = path.join(dir, `source${ext || '.png'}`);
     await writeFile(file, buffer);
-    const result = await runTesseract(file);
+    const enlarged = await enlargeImage(file, path.join(dir, 'enlarged.png'));
+    const result = await runTesseractLayout(enlarged ?? file);
+    const method = enlarged ? 'tesseract-layout-3x' : 'tesseract-layout';
     return {
       kind: 'image',
-      method: 'tesseract',
+      method,
       contentType,
       text: result.text,
       confidence: result.confidence,
@@ -240,6 +268,86 @@ async function extractImage(buffer: Buffer, ext: string, contentType: string | n
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+/** How much an image is enlarged before OCR; see `extractImage`. */
+const IMAGE_SCALE = '300%';
+
+let imageMagick: Promise<string | null> | null = null;
+
+/** ImageMagick's command: `magick` (version 7) or `convert` (6, Ubuntu's package), or null when neither is installed. */
+function imageMagickCommand(): Promise<string | null> {
+  imageMagick ??= (async () => {
+    for (const command of ['magick', 'convert']) if (await commandAvailable(command, '-version')) return command;
+    return null;
+  })();
+  return imageMagick;
+}
+
+/** `file` enlarged and greyed into `out`, or null when ImageMagick is missing or fails (the caller reads the original). */
+async function enlargeImage(file: string, out: string): Promise<string | null> {
+  const command = await imageMagickCommand();
+  if (!command) return null;
+  // `[0]`: the first frame. A GIF can hold several, and ImageMagick would write one file per frame.
+  return runCommand(command, [`${file}[0]`, '-filter', 'Lanczos', '-resize', IMAGE_SCALE, '-colorspace', 'Gray', out]).then(
+    () => out,
+    () => null,
+  );
+}
+
+/** OCR word by word, then the lines rebuilt with their columns (`layoutFromTsv`). */
+export async function runTesseractLayout(file: string): Promise<{ text: string; confidence: number }> {
+  const result = await runCommand('tesseract', [file, 'stdout', '-l', 'eng', '--psm', '11', 'tsv'], COMMAND_TIMEOUT_MS, { OMP_THREAD_LIMIT: '1' });
+  return layoutFromTsv(result.stdout);
+}
+
+/**
+ * Page text rebuilt from tesseract's word boxes. `--psm 11` reads a ruled table's words well but puts
+ * each on a line of its own; here words whose middles sit within half a line height of each other
+ * are one line again, in order across the page, each starting at the column its left edge implies
+ * (one column per median character width). The insider parser reads a row by those columns.
+ */
+export function layoutFromTsv(tsv: string): { text: string; confidence: number } {
+  const words: Array<{ text: string; left: number; width: number; height: number; mid: number }> = [];
+  const confidences: number[] = [];
+  for (const row of tsv.split(/\r?\n/u).slice(1)) {
+    const columns = row.split('\t');
+    // Level 5 is a word; the others are pages, blocks, paragraphs and lines.
+    if (columns.length < 12 || columns[0] !== '5') continue;
+    const text = columns.slice(11).join('\t').trim();
+    const [left, top, width, height] = columns.slice(6, 10).map(Number) as [number, number, number, number];
+    if (!text || ![left, top, width, height].every(Number.isFinite) || width <= 0 || height <= 0) continue;
+    const confidence = Number(columns[10]);
+    if (Number.isFinite(confidence) && confidence >= 0) confidences.push(confidence);
+    words.push({ text, left, width, height, mid: top + height / 2 });
+  }
+  if (words.length === 0) return { text: '', confidence: 0.2 };
+  const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
+  const lineHeight = median(words.map((w) => w.height));
+  const charWidth = Math.max(1, median(words.map((w) => w.width / w.text.length)));
+
+  const lines: Array<{ mid: number; words: typeof words }> = [];
+  for (const word of [...words].sort((a, b) => a.mid - b.mid)) {
+    const line = lines.at(-1);
+    if (line && Math.abs(word.mid - line.mid) <= lineHeight / 2) {
+      line.words.push(word);
+      line.mid += (word.mid - line.mid) / line.words.length;
+    } else {
+      lines.push({ mid: word.mid, words: [word] });
+    }
+  }
+  const text = lines
+    .map((line) => {
+      let out = '';
+      for (const word of [...line.words].sort((a, b) => a.left - b.left)) {
+        const column = Math.round(word.left / charWidth);
+        out += ' '.repeat(out.length === 0 ? column : Math.max(1, column - out.length)) + word.text;
+      }
+      return out;
+    })
+    .join('\n');
+  const confidence = confidences.length > 0 ? Number((confidences.reduce((sum, v) => sum + v, 0) / confidences.length / 100).toFixed(4)) : 0.2;
+  return { text, confidence };
 }
 
 async function extractSpreadsheet(buffer: Buffer, contentType: string | null): Promise<ExtractedDocument> {
@@ -306,7 +414,10 @@ async function readResponseWithLimit(response: Response, maxBytes: number): Prom
 }
 
 export async function runTesseract(file: string): Promise<{ text: string; confidence: number }> {
-  const result = await runCommand('tesseract', [file, 'stdout', '-l', 'eng', '--psm', '6', 'tsv']);
+  // One thread per process: pages are already OCR'd one per core (ocrPdfPages), and tesseract's
+  // default OpenMP threads on top of that oversubscribed the runner -- 3-page notices took over
+  // the 120 s command timeout and lost their OCR (the 2026-11-02 notice sample: 231 of 614).
+  const result = await runCommand('tesseract', [file, 'stdout', '-l', 'eng', '--psm', '6', 'tsv'], COMMAND_TIMEOUT_MS, { OMP_THREAD_LIMIT: '1' });
   return parseTesseractTsv(result.stdout);
 }
 

@@ -9,6 +9,7 @@ import { gunzipSync, gzipSync, createGunzip } from 'node:zlib';
 import {
   TEXT_VERSION,
   downloadAndExtractDocument,
+  leadingPagesRead,
   type DocumentKind,
   type ExtractedDocument,
   type ExtractedPage,
@@ -263,7 +264,11 @@ export class DocumentCorpus {
     const saved = await this.load(sourceUrl).catch(() => null);
     // Saved text whose scanned pages were skipped is only good enough if this caller agrees they
     // are not needed; otherwise extract again, this time with OCR.
-    const usable = saved && (saved.ocr !== 'skipped' || (ocr.mode === 'if-needed' && !ocr.needsOcr(saved)));
+    const usable =
+      saved &&
+      (saved.ocr !== 'skipped' ||
+        (ocr.mode === 'if-needed' && !ocr.needsOcr(saved)) ||
+        (ocr.mode === 'leading' && leadingPagesRead(saved, ocr.pages)));
     if (saved && usable) {
       this.stats.hits += 1;
       return saved;
