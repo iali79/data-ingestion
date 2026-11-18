@@ -201,7 +201,13 @@ allowed hosts (`www.ogra.org.pk`, `www.pcga.org`, `www.sbp.org.pk`, `dps.psx.com
   - One exception, `ogra-prices` only: a failed check may carry `"advisory": true`. It means the crude build-up (benchmark to
     ex-refinery price) does not add up in OGRA's own table; the build-up rows are left out and the pump-price chain is delivered.
     OGRA's 12-19 August 2026 diesel tables are the example.
-- The API validates every row again against its dataset's closed lists and re-adds the same totals before writing.
+  - Checks whose id starts `sanity:` follow the parser's own, and need only the document: the as-of date lies between
+    2010-01-01 and two days after the run; OGRA prints both products with a pump price of Rs 50 to 1,000; each PCGA row holds
+    sold = TCP + exporters + textiles, unsold = pressed − sold and unginned = arrivals − pressed, and its date falls in the printed
+    season (June to May). A failed one empties `rows` like any other. `sanity:weekday` (an off-market report dated on a weekend)
+    is the one advisory check: reported, rows still delivered.
+- The API validates every row again against its dataset's closed lists and re-adds the same totals before writing, and
+  compares the document with the figures it already holds; one that disagrees is held for review rather than written.
 
 ### 2c. Failure
 
