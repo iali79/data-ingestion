@@ -1,7 +1,7 @@
 name: Publish corpus
 
 # Called by Extract and Self-test after their jobs finish. Uploads the page text those jobs saved
-# as release assets and updates the corpus index (see README, "Document corpus").
+# as release assets and updates the corpus index.
 #
 # This is the only job anywhere in the repository with `contents: write`, and it never holds an
 # identity token for the ingest API: repository write access and API access never share a runner.
