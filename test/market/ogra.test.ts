@@ -68,6 +68,24 @@ describe('the 17 Nov 2026 publication (rounding line, refinery levy)', () => {
   });
 });
 
+describe('the 18 Nov 2026 publication (diesel rounding split into daily and cumulative lines)', () => {
+  const out = parsePricePublication(sample('price-publication-2026-11-18.txt'));
+
+  it('delivers both products with every check passing', () => {
+    expect(out.effectiveDate).toBe('2026-11-18');
+    expect(out.checks.filter((c) => !c.ok)).toEqual([]);
+    expect(new Set(out.rows.map((r) => r.product))).toEqual(new Set(['MS', 'HSD']));
+  });
+
+  it('adds the daily and cumulative rounding lines into one rounding figure', () => {
+    expect(value(out.rows, 'HSD', 'calculated')).toBe(357.24);
+    expect(value(out.rows, 'HSD', 'rounding')).toBe(0.76);
+    expect(value(out.rows, 'HSD', 'retail')).toBe(358);
+    expect(value(out.rows, 'MS', 'rounding')).toBe(-0.46);
+    expect(value(out.rows, 'MS', 'retail')).toBe(325);
+  });
+});
+
 describe('older layouts', () => {
   it('reads 18 Sep 2026 (no rounding line, "Price before Sales Tax" on diesel)', () => {
     const out = parsePricePublication(sample('price-publication-2026-09-18.txt'));

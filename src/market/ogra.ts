@@ -3,8 +3,9 @@
  * one PDF per effective date, published on https://www.ogra.org.pk/price-publications.
  *
  * Read from the PDF's text layer (`pdftotext -layout`). The wording of a row and the set of rows
- * changed between 21 July and 17 November 2026 (a refinery-levy line and a rounding line were added;
- * the diesel crude and premium rows were renamed), so rows are matched by what they say, not by
+ * changed between 21 July and 18 November 2026 (a refinery-levy line and a rounding line were added;
+ * the diesel crude and premium rows were renamed; on 18 November diesel's rounding split into a
+ * daily and a cumulative line), so rows are matched by what they say, not by
  * position or by the formula letter, and every arithmetic identity the document states is checked
  * only when the rows it needs are present.
  *
@@ -122,7 +123,9 @@ export function classifyLabel(rawLabel: string): OgraComponent | null {
   if (/^climate support levy/u.test(label)) return 'csl';
   if (/^sales tax/u.test(label)) return 'salestax';
   if (/^total (total )?calculated/u.test(label)) return 'calculated';
-  if (/^rounding-off adjustment/u.test(label)) return 'rounding';
+  // From 18 Nov 2026 the diesel table splits rounding into a daily and a cumulative line, and the
+  // final price adds both (Z = W + X + Y); the two are summed into the one `rounding` component.
+  if (/^(daily |cumulative )?rounding[- ]off adjustment/u.test(label)) return 'rounding';
   if (/^total (petrol|diesel) price/u.test(label)) return 'retail';
   return null;
 }
@@ -185,6 +188,10 @@ function readSection(section: Section): { values: Map<OgraComponent, number>; pr
     pending = '';
     const component = classifyLabel(label);
     if (!component || !number) continue;
+    if (component === 'rounding' && values.has(component)) {
+      values.set(component, Math.round((values.get(component)! + parseNumber(number[0])) * 100) / 100);
+      continue;
+    }
     if (values.has(component)) {
       problems.push(`${component} is printed twice`);
       continue;

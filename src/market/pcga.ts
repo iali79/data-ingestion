@@ -65,7 +65,8 @@ export function parseCount(token: string): number | null {
 }
 
 export function parseAsOf(text: string): string | null {
-  const match = /AS ON:?\s*(\d{1,2})\s+([A-Za-z]{3})[a-z]*\.?\s+(\d{4})/iu.exec(text);
+  // "31 Oct 2026" today; "30TH NOVEMBER 2023" and "1ST. NOVEMBER 2016" in reports before Aug 2024.
+  const match = /AS ON:?\s*(\d{1,2})(?:st|nd|rd|th)?\.?\s+([A-Za-z]{3})[a-z]*\.?\s+(\d{4})/iu.exec(text);
   if (!match) return null;
   const month = MONTHS[match[2]!.toLowerCase()];
   return month ? `${match[3]}-${String(month).padStart(2, '0')}-${String(Number(match[1])).padStart(2, '0')}` : null;

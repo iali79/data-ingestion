@@ -46,8 +46,10 @@ const MONTHS: Record<string, number> = {
   january: 1, february: 2, march: 3, april: 4, may: 5, june: 6, july: 7, august: 8, september: 9, october: 10, november: 11, december: 12,
 };
 
-const M2M = /^\s*\(\+\)\s*(\d{3})\s*\(-\)\s*(\d{3})\s{2,}(.+?)\s{2,}([\d,]+)\s+(\d+(?:\.\d+)?)\s*$/u;
-const C2C = /^\s{2,}(\d{3})\s{2,}(.+?)\s{2,}([\d,]+)\s+(\d+(?:\.\d+)?)\s*$/u;
+// A rate of a thousand rupees or more prints with a separator ("1,164.000"); a rate pattern without
+// the comma skipped those rows and every group they sat in failed its total.
+const M2M = /^\s*\(\+\)\s*(\d{3})\s*\(-\)\s*(\d{3})\s{2,}(.+?)\s{2,}([\d,]+)\s+(\d[\d,]*(?:\.\d+)?)\s*$/u;
+const C2C = /^\s{2,}(\d{3})\s{2,}(.+?)\s{2,}([\d,]+)\s+(\d[\d,]*(?:\.\d+)?)\s*$/u;
 const GROUP_TOTAL = /^\s*Total\s+([\d,]+)\s+-\s*$/u;
 const SECTION_TOTAL = /^\s*Total Turnover\s+([\d,]+)\s*$/u;
 
@@ -58,7 +60,7 @@ export function parseReportDate(text: string): string | null {
   return `${match[3]}-${String(month).padStart(2, '0')}-${String(Number(match[2])).padStart(2, '0')}`;
 }
 
-const toInt = (token: string): number => Number(token.replace(/,/gu, ''));
+const toNumber = (token: string): number => Number(token.replace(/,/gu, ''));
 
 export function parseOffMarket(text: string): OffMarketReport {
   const tradeDate = parseReportDate(text);
@@ -82,18 +84,18 @@ export function parseOffMarket(text: string): OffMarketReport {
     if (!section) continue;
 
     const sectionTotal = SECTION_TOTAL.exec(line);
-    if (sectionTotal) { turnover[section] = toInt(sectionTotal[1]!); continue; }
+    if (sectionTotal) { turnover[section] = toNumber(sectionTotal[1]!); continue; }
     const groupTotal = GROUP_TOTAL.exec(line);
-    if (groupTotal) { closeGroup(toInt(groupTotal[1]!)); continue; }
+    if (groupTotal) { closeGroup(toNumber(groupTotal[1]!)); continue; }
 
     let row: OffMarketRow | null = null;
     const m = section === 'm2m' ? M2M.exec(line) : null;
     const c = section === 'c2c' ? C2C.exec(line) : null;
     const rowNo = rowsOfSection(section).length + 1;
     if (m) {
-      row = { section, rowNo, buyerCode: m[1]!, sellerCode: m[2]!, memberCode: null, company: m[3]!.trim(), shares: toInt(m[4]!), rate: Number(m[5]), value: 0 };
+      row = { section, rowNo, buyerCode: m[1]!, sellerCode: m[2]!, memberCode: null, company: m[3]!.trim(), shares: toNumber(m[4]!), rate: toNumber(m[5]!), value: 0 };
     } else if (c && !/Member Code/u.test(line)) {
-      row = { section, rowNo, buyerCode: null, sellerCode: null, memberCode: c[1]!, company: c[2]!.trim(), shares: toInt(c[3]!), rate: Number(c[4]), value: 0 };
+      row = { section, rowNo, buyerCode: null, sellerCode: null, memberCode: c[1]!, company: c[2]!.trim(), shares: toNumber(c[3]!), rate: toNumber(c[4]!), value: 0 };
     }
     if (row) {
       row.value = Math.round(row.shares * row.rate * 100) / 100;

@@ -81,6 +81,21 @@ describe('a well-formed report', () => {
   });
 });
 
+describe('a rate of a thousand rupees or more', () => {
+  // PSX prints such a rate with a separator. Before this was read, the row was skipped and its
+  // group failed its total (21 of 43 real reports from Aug-Sep 2026).
+  const withRate = REPORT
+    .replace(/(\s+006\s+Delta Oil\s+10,000\s+)77\.500/u, '$11,164.000')
+    .replace(/(\(\+\) 033 \(-\) 044\s+Alpha Mills\s+300,000\s+)12\.500/u, '$12,012.250');
+  const out = parseOffMarket(withRate);
+
+  it('reads the row in both sections, and every total still adds up', () => {
+    expect(out.checks.filter((c) => !c.ok)).toEqual([]);
+    expect(out.rows.find((r) => r.company === 'Delta Oil')).toMatchObject({ shares: 10000, rate: 1164, value: 11640000 });
+    expect(out.rows.find((r) => r.section === 'm2m' && r.buyerCode === '033')).toMatchObject({ rate: 2012.25, value: 603675000 });
+  });
+});
+
 describe('a report that does not add up', () => {
   it('delivers nothing when a share count is altered', () => {
     const out = parseOffMarket(REPORT.replace('135,881', '136,881'));

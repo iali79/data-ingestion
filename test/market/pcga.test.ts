@@ -17,6 +17,12 @@ describe('parseAsOf', () => {
   it('reads the date arrivals are counted to, not the date of the circular', () => {
     expect(parseAsOf('ARRIVALS IN FACTORIES OF PAKISTAN AS ON: 31 Oct 2026.')).toBe('2026-10-31');
   });
+
+  it('reads the ordinal days of reports before Aug 2024', () => {
+    expect(parseAsOf('ARRIVALS IN FACTORIES OF PAKISTAN AS ON: 30TH NOVEMBER 2023.')).toBe('2023-11-30');
+    expect(parseAsOf('ARRIVALS IN FACTORIES OF PAKISTAN AS ON: 1ST. NOVEMBER 2016.')).toBe('2016-11-01');
+    expect(parseAsOf('ARRIVALS IN FACTORIES OF PAKISTAN AS ON: 15TH OCTOBER 2020.')).toBe('2020-10-15');
+  });
 });
 
 describe('the 3 Nov 2026 report', () => {
