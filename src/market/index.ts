@@ -11,6 +11,7 @@ import { downloadAndExtractDocument, downloadDocument, type ExtractedDocument, t
 import { parsePricePublication } from './ogra.js';
 import { parseCottonArrivals } from './pcga.js';
 import { parseOffMarket } from './psx-omts.js';
+import { sanityChecks } from './sanity.js';
 import { parseSbpCredit, readSbpWorkbook } from './sbp.js';
 
 export const MARKET_DATASETS = ['ogra-prices', 'pcga-cotton', 'sbp-credit', 'psx-off-market'] as const;
@@ -21,6 +22,8 @@ export type MarketRow = Record<string, string | number | null>;
 export interface MarketCheck {
   id: string;
   ok: boolean;
+  /** A failed advisory check is reported but does not withhold the rows. */
+  advisory?: boolean;
   detail?: string;
 }
 
@@ -50,31 +53,41 @@ export function isMarketDataset(value: unknown): value is MarketDataset {
   return typeof value === 'string' && (MARKET_DATASETS as readonly string[]).includes(value);
 }
 
+/** `today` (`YYYY-MM-DD`) bounds the as-of date; tests pass a fixed one. */
 export async function readMarketDocument(
   dataset: MarketDataset,
   sourceUrl: string,
   source: MarketDocumentSource,
+  today: string = new Date().toISOString().slice(0, 10),
 ): Promise<{ payload: MarketDocumentPayload; document: Pick<ExtractedDocument, 'kind' | 'contentType' | 'method' | 'pages' | 'confidence'> | null }> {
+  const finish = (payload: MarketDocumentPayload) => cap(withSanity(payload, today));
   if (dataset === 'sbp-credit') {
     const buffer = await source.obtainFile(sourceUrl);
     const out = parseSbpCredit(await readSbpWorkbook(buffer));
-    return { payload: cap({ dataset, asOf: out.asOf, rows: out.rows.map((r) => ({ ...r })), checks: out.checks }), document: null };
+    return { payload: finish({ dataset, asOf: out.asOf, rows: out.rows.map((r) => ({ ...r })), checks: out.checks }), document: null };
   }
 
   const document = await source.obtainPdf(sourceUrl);
   if (dataset === 'ogra-prices') {
     const out = parsePricePublication(document.text);
-    return { payload: cap({ dataset, asOf: out.effectiveDate, rows: out.rows.map((r) => ({ ...r })), checks: out.checks }), document };
+    return { payload: finish({ dataset, asOf: out.effectiveDate, rows: out.rows.map((r) => ({ ...r })), checks: out.checks }), document };
   }
   if (dataset === 'pcga-cotton') {
     const out = parseCottonArrivals(document.text);
     return {
-      payload: cap({ dataset, asOf: out.asOf, rows: out.rows.map((r) => ({ ...r, season: out.season })), checks: out.checks }),
+      payload: finish({ dataset, asOf: out.asOf, rows: out.rows.map((r) => ({ ...r, season: out.season })), checks: out.checks }),
       document,
     };
   }
   const out = parseOffMarket(document.text);
-  return { payload: cap({ dataset, asOf: out.tradeDate, rows: out.rows.map((r) => ({ ...r })), checks: out.checks }), document };
+  return { payload: finish({ dataset, asOf: out.tradeDate, rows: out.rows.map((r) => ({ ...r })), checks: out.checks }), document };
+}
+
+/** Adds the document-only checks; a failed hard one withholds every row, as a failed total does. */
+function withSanity(payload: MarketDocumentPayload, today: string): MarketDocumentPayload {
+  const extra = sanityChecks(payload.dataset, payload.asOf, payload.rows, today);
+  const refused = extra.some((c) => !c.ok && !c.advisory);
+  return { ...payload, rows: refused ? [] : payload.rows, checks: [...payload.checks, ...extra] };
 }
 
 /** A result is rejected rather than truncated: half a workbook is not a workbook. */
