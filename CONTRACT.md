@@ -16,7 +16,7 @@ stored credentials. Any authentication failure is a bare `401`/`403`.
 ## 1. Claim a task — `POST /api/v1/internal/extraction/claim`
 
 ```json
-{ "kinds": ["financial_statement", "corporate_action_notice"], "extractorVersion": 2 }
+{ "kinds": ["financial_statement", "corporate_action_notice", "market_document"], "extractorVersion": 2 }
 ```
 
 `200` with one task, or `{ "data": { "task": null } }` when there is nothing to do. Every
@@ -170,6 +170,44 @@ What the API does again on its side, whatever the payload says:
   or `null`; `resultsPeriod` is `quarter | half_year | annual` and `instalment` `final | interim`,
   each or `null`. The ex-date is not in the notice and is not sent: the receiving side derives
   it, and only stages the payout until an operator applies it.
+
+### 2c. Market document
+
+A `market_document` task is one public document, read into rows. Its claim has `context: { "dataset": "ogra-prices" | "pcga-cotton" | "sbp-credit" | "psx-off-market" }` and a `sourceUrl` on one of the
+allowed hosts (`www.ogra.org.pk`, `www.pcga.org`, `www.sbp.org.pk`, `dps.psx.com.pk`). The new hosts are fetched under an honest
+`CapitalistExtractor/1.0` user agent. **Deploy the API before this extractor runs**: an API that does not know the kind rejects the claim.
+
+```json
+{
+  "schemaVersion": 1, "taskId": "9021", "leaseToken": "<64 hex>", "extractorVersion": 11, "outcome": "extracted",
+  "document": { "kind": "pdf", "contentType": "application/pdf", "method": "pdftotext", "pageCount": 2, "confidence": 0.85 },
+  "marketDocument": {
+    "dataset": "ogra-prices",
+    "asOf": "2026-11-17",
+    "rows": [ { "product": "MS", "component": "retail", "value": 328 } ],
+    "checks": [ { "id": "MS:retail", "ok": true } ]
+  }
+}
+```
+
+- `rows` holds at most 5000 objects of string, number or null values; the shape depends on the dataset:
+  - `ogra-prices`: `{ product: "MS" | "HSD", component, value }` (rupees per litre, or USD per barrel for the crude rows).
+  - `pcga-cotton`: `{ region: "punjab" | "sindh" | "pakistan", district, arrivals, pressed, soldTcp, soldExporters, soldTextiles, soldTotal, unsold, unginned, lastYearArrivals, flow, factories, season }` (bales).
+  - `sbp-credit`: `{ series, period, value }`, month-end outstanding in million rupees.
+  - `psx-off-market`: `{ section: "m2m" | "c2c", rowNo, buyerCode, sellerCode, memberCode, company, shares, rate, value }`.
+- `checks` lists every arithmetic identity the parser ran (a printed total against its parts). **`rows` is empty whenever a check
+  failed**: a document that does not add up is delivered as nothing, with the failed checks named. The API treats an empty result
+  with a failed check as a rejection and keeps the reason; it does not retry a download that cannot change.
+  - One exception, `ogra-prices` only: a failed check may carry `"advisory": true`. It means the crude build-up (benchmark to
+    ex-refinery price) does not add up in OGRA's own table; the build-up rows are left out and the pump-price chain is delivered.
+    OGRA's 12-19 August 2026 diesel tables are the example.
+  - Checks whose id starts `sanity:` follow the parser's own, and need only the document: the as-of date lies between
+    2010-01-01 and two days after the run; OGRA prints both products with a pump price of Rs 50 to 1,000; each PCGA row holds
+    sold = TCP + exporters + textiles, unsold = pressed − sold and unginned = arrivals − pressed, and its date falls in the printed
+    season (June to May). A failed one empties `rows` like any other. `sanity:weekday` (an off-market report dated on a weekend)
+    is the one advisory check: reported, rows still delivered.
+- The API validates every row again against its dataset's closed lists and re-adds the same totals before writing, and
+  compares the document with the figures it already holds; one that disagrees is held for review rather than written.
 
 ### 2c. Failure
 

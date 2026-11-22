@@ -1,0 +1,96 @@
+                                          PETROL (MS) Price Effective 21 July 2026, 00:00 hours
+Price Components                Unit                      21-Jul-26 Formula Explanation
+Petrol Platts Arab Gulf Mean                                          Seven working days' rolling average of daily Platts Arab Gulf Mean Price published for Petrol
+                                USD/BBL         A           97.99
+Average                                                              (Gasoline 92 RON).
+                                                                      Weighted average of freight and margin of PSO cargos imported during last seven working days or in
+Premium including Freight       USD/BBL         B           10.98
+                                                                     case of no imports, average of cargos imported since January 2026.
+Cost & Freight                  USD/BBL      C={A+B}       108.97     Total cost at originating / load port in US Dollar.
+                                                                      Seven working days' rolling average of daily exchange rate published by State Bank of Pakistan
+SBP Avg. Exchange Rate          RS/USD          D          278.14
+                                                                     (www.sbp.org.pk).
+Conversion Factor               LTR/BBL         E          158.98     One barrel contains 158.98 litres.
+Cost & Freight in Pak Rs.       RS/LTR       F=[C*D/E]     190.65     Total cost at originating / load port in Pak Rupees.
+                                                                      Weighted average Bank Service Charges, Insurance, HDIP Charges, Port Charges etc. of PSO
+Incidentals                     RS/LTR          G           0.43     cargos imported during last seven working days or in case of no imports, average of cargos
+                                                                     imported since January 2026.
+Ocean Loss/(Gain)               RS/LTR          H           -0.48     Value of net increase or decrease in the quantity of the product during voyage.
+Petrol Cost at Karachi Port     RS/LTR       I={F+G+H}     190.59     Price of Petrol when it lands in Pakistan.
+
+                                                                      This is the adjustment which is calculated on the basis of variance in Dollar Rupee parity between
+Exchange Rate Adjustment        RS/LTR           J          -0.53
+                                                                     the day PSO discharges its LC and State Bank rate as used in the relevant pricing period.
+
+                                                                     Charged under Customs Act, 1969, based on PSO cargos imported during last seven working days
+Customs Duty                    RS/LTR          K           17.28
+                                                                     or in case of no imports, average of cargos imported since January 2026.
+Ex-Refinery/Import Price        RS/LTR       L={I+J+K}     207.34     Cost of import also considered as price of refinery product.
+                                                                     Inland Freight Equalization Margin (IFEM) represents the weighted average cost of transporting the
+IFEM                            RS/LTR          M           6.95
+                                                                     product across the country.
+                                                                     Margin of Oil Marketing Companies (PSO, Attock Petroleum,Wafi(Shell), Hascol etc) fixed by the
+OMC's Margin                    RS/LTR          N           7.87
+                                                                     Government
+Dealer's Margin                 RS/LTR          O           8.64      Margin of Petrol Pump dealers fixed by the Government.
+Price before PL, CSL & ST       RS/LTR     P={L+M+N+O}     230.80
+                                                                     Notified by Federal Government under Petroleum Product (Petroluem Levy) and Climate Support
+Petroleum Levy (PL)             RS/LTR          Q           80.00
+                                                                     Levy Ordinance, 1961
+                                                                     Notified by Federal Government under Petroleum Product (Petroluem Levy) and Climate Support
+Climate Support Levy (CSL)      RS/LTR          R           5.00
+                                                                     Levy Ordinance, 1961
+                                                                     Notified by Federal Government under Sales Tax Act 1990. Currently, Petrol is exempted from
+Sales Tax (ST)                  RS/LTR          S           0.00
+                                                                     Sales Tax.
+Total Petrol Price (excl.
+                                RS/LTR     T={P+Q+R+S}     315.80
+Secondary Freight*)
+* The cost of transporting product from OMC's depot to individual Petrol Pump.
+                                          Diesel (HSD) Price Effective 21 July 2026, 00:00 hours
+Price Components                Unit                      21-Jul-26 Formula Explanation
+
+Diesel Platts Arab Gulf Mean                                          Seven working days' rolling average of daily Platts Arab Gulf Mean Price published for
+                                USD/BBL          A          136.32
+Average                                                               Diesel (Gas Oil).
+Premium including Freight       USD/BBL          B           5.10     Freight and margin based on G-to-G agreement with Kuwait Petroleum Corporation.
+Cost & Freight                  USD/BBL       C={A+B}       141.42    Total cost at originating / load port in US Dollar.
+                                                                      Seven working days' rolling average of daily exchange rate published by State Bank of
+SBP Avg Exchange Rate           RS/USD           D          278.14
+                                                                      Pakistan (www.sbp.org.pk).
+Conversion Factor               LTR/BBL          E          158.98    One barrel contains 158.98 litres.
+Cost & Freight in Pak Rs.       RS/LTR       F=[C*D/E]      247.42    Total cost at originating / load port in Pak Rupees.
+                                                                      Weighted average Bank Service Charges, Insurance, HDIP Charges, Port Charges etc. of
+Incidentals                     RS/LTR           G           0.20     PSO cargos imported during last seven working days or in case of no imports, average of
+                                                                      cargos imported since January 2026.
+Ocean Loss/(Gain)               RS/LTR           H           0.00      Value of net increase or decrease in the quantity of the product during voyage.
+Diesel Cost at Karachi Port     RS/LTR       I={F+G+H}      247.62    Price of Diesel when it lands in Pakistan.
+                                                                      This is the adjustment which is calculated on the basis of variance in Dollar Rupee parity
+Exchange Rate Adjustment        RS/LTR            J          0.00     between the day PSO discharges its LC and State Bank rate as used in the relevant pricing
+                                                                      period.
+                                                                      Charged under Customs Act, 1969, based on PSO cargos imported during last seven
+Customs Duty                    RS/LTR           K          15.68
+                                                                      working days or in case of no imports, average of cargos imported since January 2026.
+Ex-Refinery/Import Price        RS/LTR        L={I+J+K}     263.30    Cost of import also considered as price of refinery product.
+                                                                       Inland Freight Equalization Margin (IFEM) represents the weighted average cost of
+IFEM                            RS/LTR           M           4.43
+                                                                      transporting the product across the country.
+                                                                      Margin of Oil Marketing Companies (PSO, Attock Petroleum, Hascol etc) fixed by the
+OMC's Margin                    RS/LTR           N           7.87
+                                                                      Government
+Dealer's Margin                 RS/LTR           O           8.64     Margin of Petrol Pump dealers fixed by the Government.
+Price before PL, CSL & ST       RS/LTR      P={L+M+N+O}     284.24
+                                                                      Notified by Federal Government under Petroleum Product (Petroluem Levy) and Climate
+Petroleum Levy (PL)             RS/LTR           Q          70.82
+                                                                      Support Levy Ordinance, 1961
+                                                                      Notified by Federal Government under Petroleum Product (Petroluem Levy) and Climate
+Climate Support Levy (CSL)      RS/LTR           R           5.00
+                                                                      Support Levy Ordinance, 1961
+                                                                       Notified by Federal Government under Sales Tax Act 1990. Currently, Diesel is exempted
+Sales Tax (ST)                  RS/LTR           S           0.00
+                                                                      from Sales Tax.
+Total Diesel Price (excl.
+                                RS/LTR      T={P+Q+R+S}     360.06
+Secondary Freight*)
+* The cost of transporting product from OMC's depot to individual Petrol Pump.
+

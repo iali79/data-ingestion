@@ -16,8 +16,8 @@ on:
       kinds:
         description: Task kinds
         type: choice
-        options: ['financial_statement,corporate_action_notice', 'financial_statement', 'corporate_action_notice']
-        default: 'financial_statement,corporate_action_notice'
+        options: ['financial_statement,corporate_action_notice,market_document', 'financial_statement,corporate_action_notice', 'financial_statement', 'corporate_action_notice', 'market_document']
+        default: 'financial_statement,corporate_action_notice,market_document'
       corpus:
         description: Saved document text
         type: choice
@@ -86,7 +86,8 @@ jobs:
           # credential. Authentication is the job's OIDC token.
           INGEST_API_URL: ${{ secrets.INGEST_API_URL }}
           INGEST_OIDC_AUDIENCE: ${{ secrets.INGEST_OIDC_AUDIENCE }}
-          TASK_KINDS: ${{ inputs.kinds || 'financial_statement,corporate_action_notice' }}
+          # market_document: OGRA fuel prices, PCGA cotton arrivals, SBP credit, PSX off-market (src/market).
+          TASK_KINDS: ${{ inputs.kinds || 'financial_statement,corporate_action_notice,market_document' }}
           RUN_BUDGET_MINUTES: '330'
           # Document corpus: read saved text with this job's read-only token, save fresh text for
           # the publish job. `ignore` forces every document to be downloaded and extracted again.

@@ -12,6 +12,7 @@ import {
   toPayoutPayload,
 } from './contract.js';
 import { isBoardMeetingTitle, parseBoardMeeting } from './meeting.js';
+import { DOWNLOAD_MARKET_SOURCE, isMarketDataset, readMarketDocument, type MarketDocumentSource } from './market/index.js';
 import { isInsiderDisclosureTitle, parseInsiderDisclosure } from './insider.js';
 import { isPayoutNoticeTitle, parsePayoutNotice, PAYOUT_OCR } from './payout.js';
 import { DocumentExtractionError } from './errors.js';
@@ -36,8 +37,14 @@ export const STATEMENT_OCR: OcrPolicy = { mode: 'if-needed', needsOcr: statement
  * model (`llm`), statements are read by it and verified against the page; without one, the
  * rule-based parser is used.
  */
-export async function processTask(task: ClaimedTask, documents: DocumentSource = DOWNLOAD, llm: LlmClient | null = null): Promise<ResultPayload> {
+export async function processTask(
+  task: ClaimedTask,
+  documents: DocumentSource = DOWNLOAD,
+  llm: LlmClient | null = null,
+  market: MarketDocumentSource = DOWNLOAD_MARKET_SOURCE,
+): Promise<ResultPayload> {
   try {
+    if (task.kind === 'market_document') return await processMarketDocument(task, market);
     if (task.kind === 'financial_statement') {
       return llm ? await processStatementWithModel(task, documents, llm) : await processStatement(task, documents);
     }
@@ -53,6 +60,27 @@ export async function processTask(task: ClaimedTask, documents: DocumentSource =
       },
     };
   }
+}
+
+/**
+ * One public document read into rows. A document that fails its own arithmetic is still a successful
+ * extraction: the rows are empty and the failed checks are in the result, so the API rejects it with
+ * the reason an operator needs instead of retrying a download that cannot change.
+ */
+export async function processMarketDocument(
+  task: Extract<ClaimedTask, { kind: 'market_document' }>,
+  market: MarketDocumentSource,
+): Promise<ResultPayload> {
+  if (!isMarketDataset(task.context.dataset)) {
+    return { ...envelope(task), outcome: 'failed', error: { code: 'unsupported_type', message: 'unknown market dataset' } };
+  }
+  const { payload, document } = await readMarketDocument(task.context.dataset, task.sourceUrl, market);
+  return {
+    ...envelope(task),
+    outcome: 'extracted',
+    document: document ? summarizeDocument(document as ExtractedDocument) : null,
+    marketDocument: payload,
+  };
 }
 
 async function processStatementWithModel(

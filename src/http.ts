@@ -5,11 +5,28 @@ import { DocumentExtractionError } from './errors.js';
  * before handing a task out; this is the second, independent check, so a bad task row can never
  * turn the runner into a fetcher of arbitrary URLs.
  */
-export const ALLOWED_DOCUMENT_HOSTS: ReadonlySet<string> = new Set(['financials.psx.com.pk', 'dps.psx.com.pk']);
+export const ALLOWED_DOCUMENT_HOSTS: ReadonlySet<string> = new Set([
+  'financials.psx.com.pk',
+  'dps.psx.com.pk',
+  // Public market documents (`market_document` tasks): OGRA price publications, PCGA cotton arrivals,
+  // SBP credit data.
+  'www.ogra.org.pk',
+  'www.pcga.org',
+  'www.sbp.org.pk',
+]);
+
+/** The PSX hosts keep the request headers they have always been fetched with. */
+const PSX_HOSTS: ReadonlySet<string> = new Set(['financials.psx.com.pk', 'dps.psx.com.pk']);
 
 const MAX_REDIRECTS = 3;
 const HEADER_TIMEOUT_MS = 30_000;
 const RETRIES = 3;
+
+/** Hosts added for market documents are fetched under an honest, identifiable user agent. */
+const HONEST_HEADERS = {
+  'user-agent': 'CapitalistExtractor/1.0 (+https://github.com/iali79/data-ingestion)',
+  accept: 'application/pdf,application/vnd.ms-excel,*/*',
+};
 
 const HEADERS = {
   'user-agent':
@@ -61,7 +78,7 @@ async function fetchWithRetry(url: URL): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), HEADER_TIMEOUT_MS);
     try {
-      const response = await fetch(url, { headers: HEADERS, redirect: 'manual', signal: controller.signal });
+      const response = await fetch(url, { headers: PSX_HOSTS.has(url.hostname) ? HEADERS : HONEST_HEADERS, redirect: 'manual', signal: controller.signal });
       if (!isRetryable(response.status) || attempt === RETRIES) return response;
       await response.body?.cancel();
       lastError = new Error(`HTTP ${response.status}`);
